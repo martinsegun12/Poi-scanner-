@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMC Scanner</title>
+<style>
+body{background:#080c12;color:#c8d8e8;font-family:sans-serif;padding:12px;margin:0;}
+h1{color:#e8f4ff;font-size:16px;margin-bottom:12px;}
+.btn{background:#1a4a8a;border:1px solid #4a9eff;color:#4a9eff;font-size:13px;font-weight:bold;padding:12px;border-radius:8px;cursor:pointer;width:100%;margin-bottom:10px;}
+.pair-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.pair-btn{background:#111d2e;border:1px solid #1a2d45;color:#4a6080;font-size:12px;font-weight:bold;padding:8px 12px;border-radius:8px;cursor:pointer;}
+.pair-btn.active{background:rgba(74,158,255,.15);border-color:#4a9eff;color:#4a9eff;}
+.card{background:#0d1520;border:1px solid #1a2d45;border-radius:10px;padding:14px;margin-bottom:10px;}
+.status{font-size:11px;color:#4a6080;margin-bottom:10px;}
+.green{color:#00e5a0;}
+.red{color:#ff3d6b;}
+.yellow{color:#ffb830;}
+.row{display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px;}
+.label{color:#4a6080;}
+.val{color:#e8f4ff;font-weight:bold;}
+</style>
+</head>
+<body>
+<h1>SMC Forex Scanner</h1>
+
+<div class="pair-row" id="pairRow"></div>
+<button class="btn" id="scanBtn">SCAN</button>
+<div class="status" id="status">Select a pair then press SCAN</div>
+<div id="result"></div>
+
+<script>
+var API_KEY = '8835de6ad0b94dbd8e94d50c0a552f30';
+var PAIRS = ['GBP/USD','GBP/JPY','EUR/USD','GBP/AUD','AUD/USD'];
+var PIP = {'GBP/USD':0.0001,'EUR/USD':0.0001,'AUD/USD':0.0001,'GBP/JPY':0.01,'GBP/AUD':0.0001};
+var selected = 'GBP/USD';
+
+// Build pair buttons
+var pairRow = document.getElementById('pairRow');
+PAIRS.forEach(function(p) {
+  var btn = document.createElement('button');
+  btn.className = 'pair-btn' + (p === selected ? ' active' : '');
+  btn.textContent = p.replace('/','');
+  btn.onclick = function() {
+    selected = p;
+    document.querySelectorAll('.pair-btn').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('status').textContent = p + ' selected - press SCAN';
+    document.getElementById('result').innerHTML = '';
+  };
+  pairRow.appendChild(btn);
+});
+
+document.getElementById('scanBtn').onclick = function() {
+  runScan();
+};
+
+function fmt(pair, price) {
+  if (!price || isNaN(price)) return '--';
+  return pair.indexOf('JPY') >= 0 ? price.toFixed(3) : price.toFixed(5);
+}
+
+function pips(pair, dist) {
+  return Math.round(Math.abs(dist) / PIP[pair]);
+}
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+function fetchCandles(symbol, interval, size, callback) {
+  var url = 'https://api.twelvedata.com/time_series?symbol=' + encodeURIComponent(symbol) + '&interval=' + interval + '&outputsize=' + size + '&apikey=' + API_KEY + '&format=JSON';
+  fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.status === 'error' || !data.values) {
+        callback(null, data.message || 'API error');
+        return;
+      }
+      var candles = data.values.map(function(c){
+        return {t:c.datetime, o:+c.open, h:+c.high, l:+c.low, c:+c.close};
+      }).reverse();
+      callback(candles, null);
+    })
+    .catch(function(e){ callback(null, e.message); });
+}
+
+function getBias(candles) {
+  if (!candles || candles.length < 10) return 'neutral';
+  var r = candles.slice(-12);
+  var H = r.map(function(c){ return c.h; });
+  var L = r.map(function(c){ return c.l; });
+  var hh = 0, hl = 0, ll = 0, lh = 0;
+  for (var i = 1; i < H.length; i++) {
+    if (H[i] > H[i-1]) hh++;
+    if (L[i] > L[i-1]) hl++;
+    if (L[i] < L[i-1]) ll++;
+    if (H[i] < H[i-1]) lh++;
+  }
+  if (hh >= 4 && hl >= 3) return 'bull';
+  if (ll >= 4 && lh >= 3) return 'bear';
+  return 'neutral';
+}
+
+function getSwings(candles, lb) {
+  lb = lb || 4;
+  var SH = [], SL = [];
+  for (var i = lb; i < candles.length - lb; i++) {
+    var sl = candles.slice(i - lb, i + lb + 1);
+    var maxH = sl.reduce(function(m,c){ return Math.max(m,c.h); }, -Infinity);
+    var minL = sl.reduce(function(m,c){ return Math.min(m,c.l); }, Infinity);
+    if (candles[i].h === maxH) SH.push({price: candles[i].h, t: candles[i].t});
+    if (candles[i].l === minL) SL.push({price: candles[i].l, t: candles[i].t});
+  }
+  return {
+    latestHigh: SH[SH.length-1] || null,
+    latestLow:  SL[SL.length-1] || null,
+    allHighs: SH, allLows: SL
+  };
+}
+
+function findOB(candles, bias) {
+  // Last 2-3 opposing candles before a strong impulse
+  for (var i = candles.length - 2; i >= 3; i--) {
+    var c = candles[i];
+    var body = Math.abs(c.c - c.o);
+    var range = c.h - c.l;
+    if (body < range * 0.4) continue;
+    var prior = candles.slice(Math.max(0, i-8), i);
+    if (bias === 'bear' && c.c < c.o) {
+      var prevLow = prior.reduce(function(m,x){ return Math.min(m,x.l); }, Infinity);
+      if (c.c < prevLow) {
+        var origin = candles.slice(Math.max(0, i-3), i);
+        var top = origin.reduce(function(m,x){ return Math.max(m,x.h); }, -Infinity);
+        var bot = origin.reduce(function(m,x){ return Math.min(m,x.l); }, Infinity);
+        return {top:top, bot:bot, mid:(top+bot)/2, timeStart:origin[0].t, bosTime:c.t};
+      }
+    }
+    if (bias === 'bull' && c.c > c.o) {
+      var prevHigh = prior.reduce(function(m,x){ return Math.max(m,x.h); }, -Infinity);
+      if (c.c > prevHigh) {
+        var origin2 = candles.slice(Math.max(0, i-3), i);
+        var top2 = origin2.reduce(function(m,x){ return Math.max(m,x.h); }, -Infinity);
+        var bot2 = origin2.reduce(function(m,x){ return Math.min(m,x.l); }, Infinity);
+        return {top:top2, bot:bot2, mid:(top2+bot2)/2, timeStart:origin2[0].t, bosTime:c.t};
+      }
+    }
+  }
+  return null;
+}
+
+function findFVG(candles, bias) {
+  for (var i = candles.length - 1; i >= 2; i--) {
+    var a = candles[i-2], c = candles[i];
+    if (bias === 'bull' && c.l > a.h)
+      return {top:c.l, bot:a.h, mid:(c.l+a.h)/2, time:candles[i-1].t};
+    if (bias === 'bear' && c.h < a.l)
+      return {top:a.l, bot:c.h, mid:(a.l+c.h)/2, time:candles[i-1].t};
+  }
+  return null;
+}
+
+function detectSweep(candles, bias) {
+  var sw = getSwings(candles, 3);
+  if (!sw.latestHigh || !sw.latestLow) return {swept:false};
+  var last = candles[candles.length-1];
+  var prev = candles[candles.length-2];
+  var buf = PIP[selected] * 3;
+  if (bias === 'bull') {
+    var lv = sw.latestLow.price;
+    if ((prev.l < lv || last.l < lv) && last.c > lv + buf)
+      return {swept:true, wickLevel: Math.min(prev.l, last.l), sweepTime: prev.l < lv ? prev.t : last.t};
+  }
+  if (bias === 'bear') {
+    var lv2 = sw.latestHigh.price;
+    if ((prev.h > lv2 || last.h > lv2) && last.c < lv2 - buf)
+      return {swept:true, wickLevel: Math.max(prev.h, last.h), sweepTime: prev.h > lv2 ? prev.t : last.t};
+  }
+  return {swept:false};
+}
+
+function detectCISD(candles, bias) {
+  if (candles.length < 4) return {confirmed:false};
+  var recent = candles.slice(-8);
+  var last = recent[recent.length-1];
+  if (bias === 'bull') {
+    for (var i = recent.length-2; i >= 0; i--) {
+      if (recent[i].c < recent[i].o) {
+        if (last.c > recent[i].o && last.c > last.o)
+          return {confirmed:true, triggerOpen:recent[i].o, time:last.t};
+        break;
+      }
+    }
+  }
+  if (bias === 'bear') {
+    for (var j = recent.length-2; j >= 0; j--) {
+      if (recent[j].c > recent[j].o) {
+        if (last.c < recent[j].o && last.c < last.o)
+          return {confirmed:true, triggerOpen:recent[j].o, time:last.t};
+        break;
+      }
+    }
+  }
+  return {confirmed:false};
+}
+
+function detectFTS(candles, bias) {
+  if (candles.length < 4) return null;
+  var r = candles.slice(-4);
+  var last = r[3], prev = r[2], pprev = r[1];
+  if (bias === 'bull' && prev.l > pprev.l && last.c > last.o && last.c > prev.o)
+    return {high:last.h, low:last.l, open:last.o, close:last.c, time:last.t};
+  if (bias === 'bear' && prev.h < pprev.h && last.c < last.o && last.c < prev.o)
+    return {high:last.h, low:last.l, open:last.o, close:last.c, time:last.t};
+  return null;
+}
+
+function findEntryFVG(candles, fts, bias) {
+  if (!fts) return null;
+  var recent = candles.slice(-6);
+  for (var i = 2; i < recent.length; i++) {
+    var a = recent[i-2], c = recent[i];
+    if (bias === 'bull' && c.l > a.h) {
+      var mid = (c.l + a.h) / 2;
+      if (mid >= fts.low - PIP[selected]*5 && mid <= fts.high + PIP[selected]*5)
+        return {top:c.l, bot:a.h, entry:a.h, time:recent[i-1].t};
+    }
+    if (bias === 'bear' && c.h < a.l) {
+      var mid2 = (a.l + c.h) / 2;
+      if (mid2 >= fts.low - PIP[selected]*5 && mid2 <= fts.high + PIP[selected]*5)
+        return {top:a.l, bot:c.h, entry:a.l, time:recent[i-1].t};
+    }
+  }
+  // fallback: FTS body
+  if (bias === 'bull') return {top:Math.max(fts.open,fts.close), bot:Math.min(fts.open,fts.close), entry:Math.min(fts.open,fts.close), fallback:true, time:fts.time};
+  if (bias === 'bear') return {top:Math.max(fts.open,fts.close), bot:Math.min(fts.open,fts.close), entry:Math.max(fts.open,fts.close), fallback:true, time:fts.time};
+  return null;
+}
+
+function getEQ(candles4h) {
+  var r = candles4h.slice(-40);
+  var high = r.reduce(function(m,c){ return Math.max(m,c.h); }, -Infinity);
+  var low  = r.reduce(function(m,c){ return Math.min(m,c.l); }, Infinity);
+  return {high:high, low:low, mid:(high+low)/2};
+}
+
+function runScan() {
+  var btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+  btn.textContent = 'SCANNING...';
+  setStatus('Fetching ' + selected + ' data...');
+  document.getElementById('result').innerHTML = '';
+
+  var pair = selected;
+  var results = {};
+  var errors = [];
+  var tfs = ['1day','4h','1h','15min','5min'];
+  var done = 0;
+
+  tfs.forEach(function(tf) {
+    var size = (tf === '1day') ? 40 : 80;
+    fetchCandles(pair, tf, size, function(candles, err) {
+      if (err) errors.push(tf + ': ' + err);
+      else results[tf] = candles;
+      done++;
+      if (done === tfs.length) {
+        btn.disabled = false;
+        btn.textContent = 'SCAN';
+        if (errors.length) {
+          setStatus('Error: ' + errors[0]);
+          document.getElementById('result').innerHTML = '<div class="card"><span class="red">Error: ' + errors[0] + '</span><br><br>Rate limit? Wait 60s and retry.</div>';
+          return;
+        }
+        processResults(pair, results);
+      }
+    });
+  });
+}
+
+function processResults(pair, d) {
+  var c1d = d['1day'], c4h = d['4h'], c1h = d['1h'], c15m = d['15min'], c5m = d['5min'];
+  var price = c5m[c5m.length-1].c;
+
+  // Bias
+  var b1d = getBias(c1d);
+  var b4h = getBias(c4h);
+  var b1h = getBias(c1h);
+  var bias = (b1d === b4h && b1d !== 'neutral') ? b1d : b4h !== 'neutral' ? b4h : b1d;
+
+  // EQ
+  var eq = getEQ(c4h);
+  var pct = eq.high > eq.low ? Math.round(((price - eq.low)/(eq.high - eq.low))*100) : 50;
+  var zone = pct > 55 ? 'Premium' : pct < 45 ? 'Discount' : 'Equilibrium';
+
+  // POIs from 4H and 1H
+  var ob4h = findOB(c4h, bias);
+  var fvg4h = findFVG(c4h, bias);
+  var ob1h = findOB(c1h, bias);
+  var fvg1h = findFVG(c1h, bias);
+
+  // Build POI list
+  var pois = [];
+  if (ob4h) pois.push({label:'4H Order Block', top:ob4h.top, bot:ob4h.bot, mid:ob4h.mid, timeStart:ob4h.timeStart, bosTime:ob4h.bosTime});
+  if (fvg4h) pois.push({label:'4H FVG', top:fvg4h.top, bot:fvg4h.bot, mid:fvg4h.mid, timeStart:fvg4h.time, bosTime:fvg4h.time});
+  if (ob1h) pois.push({label:'1H Order Block', top:ob1h.top, bot:ob1h.bot, mid:ob1h.mid, timeStart:ob1h.timeStart, bosTime:ob1h.bosTime});
+  if (fvg1h) pois.push({label:'1H FVG', top:fvg1h.top, bot:fvg1h.bot, mid:fvg1h.mid, timeStart:fvg1h.time, bosTime:fvg1h.time});
+
+  // Mark reached POIs
+  var bufPips = PIP[pair] * 20;
+  pois.forEach(function(p, i) {
+    p.number = i + 1;
+    p.reached = price >= p.bot - bufPips && price <= p.top + bufPips;
+    p.inEQ = bias === 'bear' ? p.mid >= eq.mid : p.mid <= eq.mid;
+  });
+
+  // Swings
+  var sw1h = getSwings(c1h, 4);
+  var sw4h = getSwings(c4h, 5);
+
+  // Confirmation
+  var sweep = detectSweep(c15m, bias);
+  var cisd = {confirmed:false}, cisdTF = '';
+  if (sweep.swept) {
+    var c15 = detectCISD(c15m, bias);
+    if (c15.confirmed) { cisd = c15; cisdTF = '15m'; }
+    else {
+      var c5 = detectCISD(c5m, bias);
+      if (c5.confirmed) { cisd = c5; cisdTF = '5m'; }
+    }
+  }
+  var fts = cisd.confirmed ? detectFTS(c5m, bias) : null;
+  var entryFVG = fts ? findEntryFVG(c5m, fts, bias) : null;
+
+  // Score
+  var score = 0;
+  if (bias !== 'neutral') score++;
+  if (pois.some(function(p){ return p.inEQ; })) score++;
+  if (pois.some(function(p){ return p.reached; })) score++;
+  if (sweep.swept) score++;
+  if (cisd.confirmed && fts) score++;
+
+  // Levels
+  var sl = null, tp1 = null, tp2 = null;
+  if (fts && entryFVG && sweep.swept && cisd.confirmed) {
+    var entry = entryFVG.entry;
+    var buf5 = PIP[pair] * 5;
+    sl = bias === 'bull' ? sweep.wickLevel - buf5 : sweep.wickLevel + buf5;
+    var allH = (sw1h.allHighs||[]).concat(sw4h.allHighs||[]).filter(function(s){ return s.price > entry; }).sort(function(a,b){ return a.price-b.price; });
+    var allL = (sw1h.allLows||[]).concat(sw4h.allLows||[]).filter(function(s){ return s.price < entry; }).sort(function(a,b){ return b.price-a.price; });
+    if (bias === 'bull') { tp1 = allH[0] ? allH[0].price : null; tp2 = allH[allH.length-1] ? allH[allH.length-1].price : null; }
+    if (bias === 'bear') { tp1 = allL[0] ? allL[0].price : null; tp2 = allL[allL.length-1] ? allL[allL.length-1].price : null; }
+  }
+
+  // Step
+  var step = 0;
+  if (bias !== 'neutral') step = 1;
+  if (pois.some(function(p){ return p.inEQ; })) step = 2;
+  if (pois.some(function(p){ return p.reached; })) step = 3;
+  if (sweep.swept) step = 4;
+  if (cisd.confirmed && fts) step = 5;
+
+  renderResult(pair, price, bias, b1d, b4h, b1h, eq, pct, zone, pois, sweep, cisd, cisdTF, fts, entryFVG, sl, tp1, tp2, score, step, sw1h);
+  setStatus(pair + ' scanned. Score: ' + score + '/5. Step: ' + step + '/5.');
+}
+
+function renderResult(pair, price, bias, b1d, b4h, b1h, eq, pct, zone, pois, sweep, cisd, cisdTF, fts, entryFVG, sl, tp1, tp2, score, step, sw1h) {
+  var biasColor = bias === 'bull' ? 'green' : bias === 'bear' ? 'red' : '';
+  var biasLabel = bias === 'bull' ? 'BULLISH' : bias === 'bear' ? 'BEARISH' : 'RANGING';
+
+  var html = '';
+
+  // Header
+  html += '<div class="card">';
+  html += '<div class="row"><span class="val" style="font-size:16px">' + pair.replace('/','') + '</span><span class="' + biasColor + '" style="font-weight:bold;font-size:14px">' + biasLabel + '</span></div>';
+  html += '<div class="row"><span class="label">Price</span><span class="val">' + fmt(pair, price) + '</span></div>';
+
+  // Structure
+  html += '<div style="margin:8px 0;font-size:10px;color:#4a6080;text-transform:uppercase;letter-spacing:.08em">Structure</div>';
+  html += '<div class="row"><span class="label">1D</span><span class="' + (b1d==='bull'?'green':b1d==='bear'?'red':'') + '">' + b1d.toUpperCase() + '</span></div>';
+  html += '<div class="row"><span class="label">4H</span><span class="' + (b4h==='bull'?'green':b4h==='bear'?'red':'') + '">' + b4h.toUpperCase() + '</span></div>';
+  html += '<div class="row"><span class="label">1H</span><span class="' + (b1h==='bull'?'green':b1h==='bear'?'red':'') + '">' + b1h.toUpperCase() + '</span></div>';
+
+  // EQ
+  html += '<div style="margin:8px 0;font-size:10px;color:#4a6080;text-transform:uppercase;letter-spacing:.08em">4H Equilibrium (50%)</div>';
+  html += '<div class="row"><span class="label">Range</span><span class="val">' + fmt(pair,eq.low) + ' - ' + fmt(pair,eq.high) + '</span></div>';
+  html += '<div class="row"><span class="label">50% Mid</span><span class="yellow">' + fmt(pair,eq.mid) + '</span></div>';
+  html += '<div class="row"><span class="label">Price Zone</span><span class="' + (zone==='Discount'?'green':zone==='Premium'?'red':'yellow') + '">' + zone + ' (' + pct + '%)</span></div>';
+
+  // Score
+  html += '<div style="margin:8px 0;font-size:10px;color:#4a6080;text-transform:uppercase;letter-spacing:.08em">Confluence: ' + score + '/5 &nbsp; Step: ' + step + '/5</div>';
+
+  html += '</div>'; // end card
+
+  // POIs
+  if (pois.length) {
+    pois.forEach(function(p) {
+      html += '<div class="card" style="border-color:' + (p.reached ? '#ffb830' : '#1a2d45') + '">';
+      html += '<div class="row"><span class="val">POI ' + p.number + ' - ' + p.label + '</span>';
+      html += '<span style="font-size:10px;color:' + (p.inEQ ? '#00e5a0' : '#ff3d6b') + '">' + (p.inEQ ? 'IN ZONE' : 'OUTSIDE EQ') + '</span></div>';
+      html += '<div class="row"><span class="label">Zone</span><span class="val">' + fmt(pair,p.bot) + ' - ' + fmt(pair,p.top) + '</span></div>';
+      html += '<div class="row"><span class="label">Mid</span><span class="val">' + fmt(pair,p.mid) + '</span></div>';
+      if (p.timeStart) html += '<div class="row"><span class="label">Candle</span><span style="font-size:10px;color:#c8d8e8">' + p.timeStart.slice(0,16) + '</span></div>';
+      if (p.bosTime) html += '<div class="row"><span class="label">BOS/ChoCH</span><span style="font-size:10px;color:#c8d8e8">' + p.bosTime.slice(0,16) + '</span></div>';
+      if (p.reached) html += '<div style="color:#ffb830;font-size:11px;font-weight:bold;margin-top:4px">REACHED - Looking for confirmation</div>';
+      html += '</div>';
+    });
+  }
+
+  // Confirmation
+  html += '<div class="card">';
+  html += '<div style="margin-bottom:8px;font-size:10px;color:#4a6080;text-transform:uppercase;letter-spacing:.08em">Confirmation</div>';
+
+  html += '<div class="row"><span class="label">15m Sweep</span><span class="' + (sweep.swept?'green':'') + '">' + (sweep.swept ? 'YES - ' + fmt(pair,sweep.wickLevel) + '<br><small>' + (sweep.sweepTime||'').slice(0,16) + '</small>' : 'NO - waiting') + '</span></div>';
+  html += '<div class="row"><span class="label">CISD</span><span class="' + (cisd.confirmed?'green':'') + '">' + (cisd.confirmed ? 'YES on ' + cisdTF : sweep.swept ? 'Watching...' : 'Need sweep first') + '</span></div>';
+  html += '<div class="row"><span class="label">FTS (5m)</span><span class="' + (fts?'green':'') + '">' + (fts ? 'YES - ' + fts.time.slice(0,16) : cisd.confirmed ? 'Watching...' : 'Not yet') + '</span></div>';
+
+  html += '</div>';
+
+  // Entry levels (only if FTS confirmed)
+  if (fts && entryFVG && sl && tp1) {
+    var entry = entryFVG.entry;
+    var slPips = Math.round(Math.abs(entry - sl) / PIP[pair]);
+    var tp1Pips = Math.round(Math.abs(tp1 - entry) / PIP[pair]);
+    var rr1 = slPips > 0 ? (tp1Pips/slPips).toFixed(1) : '?';
+    var tp2Pips = tp2 ? Math.round(Math.abs(tp2 - entry) / PIP[pair]) : 0;
+    var rr2 = (tp2 && slPips > 0) ? (tp2Pips/slPips).toFixed(1) : '?';
+
+    html += '<div class="card" style="border-color:#00e5a0">';
+    html += '<div style="margin-bottom:8px;font-size:10px;color:#4a6080;text-transform:uppercase;letter-spacing:.08em">Entry Levels</div>';
+
+    if (sw1h.latestHigh) html += '<div class="row"><span class="label">1H High</span><span class="yellow">' + fmt(pair,sw1h.latestHigh.price) + '</span></div>';
+    if (sw1h.latestLow) html += '<div class="row"><span class="label">1H Low</span><span class="yellow">' + fmt(pair,sw1h.latestLow.price) + '</span></div>';
+    if (sweep.wickLevel) html += '<div class="row"><span class="label">Sweep Wick</span><span class="red">' + fmt(pair,sweep.wickLevel) + ' (' + sweep.sweepTime.slice(0,16) + ')</span></div>';
+    if (fts) html += '<div class="row"><span class="label">FTS Zone</span><span class="yellow">' + fmt(pair,fts.low) + ' - ' + fmt(pair,fts.high) + '</span></div>';
+    if (!entryFVG.fallback) html += '<div class="row"><span class="label">Entry FVG</span><span class="val">' + fmt(pair,entryFVG.bot) + ' - ' + fmt(pair,entryFVG.top) + '</span></div>';
+
+    html += '<div class="row"><span class="label">ENTRY</span><span class="val" style="color:#4a9eff;font-size:14px">' + fmt(pair,entry) + '</span></div>';
+    html += '<div class="row"><span class="label">SL</span><span class="red" style="font-size:14px">' + fmt(pair,sl) + ' (' + slPips + ' pips)</span></div>';
+    html += '<div class="row"><span class="label">TP1 (nearest)</span><span class="green" style="font-size:13px">' + fmt(pair,tp1) + ' (' + tp1Pips + ' pips) RR 1:' + rr1 + '</span></div>';
+    if (tp2 && tp2 !== tp1) html += '<div class="row"><span class="label">TP2 (major)</span><span class="green">' + fmt(pair,tp2) + ' (' + tp2Pips + ' pips) RR 1:' + rr2 + '</span></div>';
+    html += '</div>';
+  } else {
+    html += '<div class="card">';
+    var msg = !sweep.swept ? 'Watching for 15m liquidity sweep inside POI zone.' :
+              !cisd.confirmed ? 'Sweep done. Watching for CISD on 15m or 5m.' :
+              !fts ? 'CISD done. Waiting for FTS candle to close on 5m.' :
+              'FTS done. Entry FVG not found yet inside FTS zone.';
+    html += '<span class="yellow">' + msg + '</span>';
+    html += '</div>';
+  }
+
+  document.getElementById('result').innerHTML = html;
+}
+</script>
+</body>
+</html>

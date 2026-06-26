@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>SMC Forex Scanner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+  :root{
+    --bg:#080c12;--surface:#0d1520;--surface2:#111d2e;--border:#1a2d45;
+    --bull:#00e5a0;--bear:#ff3d6b;--neutral:#4a9eff;--warn:#ffb830;
+    --text:#c8d8e8;--text-dim:#4a6080;--text-bright:#e8f4ff;--accent:#4a9eff;
+    --glow-bull:0 0 24px rgba(0,229,160,.18);--glow-bear:0 0 24px rgba(255,61,107,.18);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;min-height:100vh;padding:12px;font-size:13px;}
+
+  .header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:12px;}
+  .header h1{font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--text-bright);letter-spacing:.05em;}
+  .header span{font-size:10px;color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;}
+
+  .pair-selector{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+  .selector-label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;}
+  .pair-buttons{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px;}
+  .pair-btn{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);cursor:pointer;transition:all .15s;letter-spacing:.04em;}
+  .pair-btn.selected{background:rgba(74,158,255,.15);border-color:var(--accent);color:var(--accent);}
+  .pair-btn:active{transform:scale(.95);}
+  .scan-btn{width:100%;background:linear-gradient(135deg,#1a4a8a,#0d2d5e);border:1px solid var(--accent);color:var(--accent);font-family:'Space Mono',monospace;font-size:12px;font-weight:700;padding:11px 16px;border-radius:8px;cursor:pointer;letter-spacing:.08em;}
+  .scan-btn:disabled{opacity:.5;cursor:not-allowed;}
+
+  .session-bar{display:flex;gap:6px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px;}
+  .session-pill{flex-shrink:0;padding:5px 10px;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);}
+  .session-pill.active{background:rgba(74,158,255,.15);border-color:var(--accent);color:var(--accent);}
+
+  .status-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;font-size:11px;color:var(--text-dim);}
+  .pulse{width:7px;height:7px;border-radius:50%;background:var(--text-dim);flex-shrink:0;}
+  .pulse.scanning{background:var(--warn);animation:blink .8s infinite;}
+  .pulse.done{background:var(--bull);}
+  .pulse.error{background:var(--bear);}
+  @keyframes blink{0%,100%{opacity:1;}50%{opacity:.2;}}
+
+  .pairs-grid{display:flex;flex-direction:column;gap:10px;}
+  .pair-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  .pair-card.bullish{border-color:rgba(0,229,160,.35);box-shadow:var(--glow-bull);}
+  .pair-card.bearish{border-color:rgba(255,61,107,.35);box-shadow:var(--glow-bear);}
+
+  .card-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);}
+  .pair-name{font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--text-bright);}
+  .pair-price{font-family:'Space Mono',monospace;font-size:10px;color:var(--text-dim);margin-top:2px;}
+  .bias-badge{padding:4px 10px;border-radius:6px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
+  .bias-badge.bull{background:rgba(0,229,160,.15);color:var(--bull);border:1px solid rgba(0,229,160,.3);}
+  .bias-badge.bear{background:rgba(255,61,107,.15);color:var(--bear);border:1px solid rgba(255,61,107,.3);}
+  .bias-badge.neutral{background:rgba(74,158,255,.1);color:var(--neutral);border:1px solid rgba(74,158,255,.2);}
+
+  .section-label{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;padding:7px 14px 3px;border-top:1px solid var(--border);}
+  .tf-row{display:flex;gap:4px;padding:5px 14px 9px;flex-wrap:wrap;}
+  .tf-chip{font-size:9px;font-family:'Space Mono',monospace;padding:2px 7px;border-radius:4px;border:1px solid var(--border);color:var(--text-dim);}
+  .tf-chip.bull{border-color:rgba(0,229,160,.3);color:var(--bull);background:rgba(0,229,160,.05);}
+  .tf-chip.bear{border-color:rgba(255,61,107,.3);color:var(--bear);background:rgba(255,61,107,.05);}
+  .tf-chip.neutral{border-color:rgba(74,158,255,.2);color:var(--neutral);background:rgba(74,158,255,.05);}
+
+  /* EQ BAR */
+  .eq-section{padding:10px 14px;border-top:1px solid var(--border);}
+  .eq-label{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;}
+  .eq-bar-wrap{position:relative;height:22px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);overflow:hidden;}
+  .eq-zone-discount{position:absolute;left:0;top:0;width:50%;height:100%;background:rgba(0,229,160,.07);}
+  .eq-zone-premium{position:absolute;right:0;top:0;width:50%;height:100%;background:rgba(255,61,107,.07);}
+  .eq-mid-line{position:absolute;left:50%;top:0;width:2px;height:100%;background:var(--warn);opacity:.8;}
+  .eq-price-dot{position:absolute;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;border:2px solid var(--bg);}
+  .eq-price-dot.bull{background:var(--bull);}
+  .eq-price-dot.bear{background:var(--bear);}
+  .eq-price-dot.neutral{background:var(--neutral);}
+  .eq-labels{display:flex;justify-content:space-between;font-family:'Space Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:4px;}
+  .eq-mid-label{color:var(--warn);font-weight:700;}
+  .eq-verdict{font-size:10px;font-weight:600;margin-top:5px;}
+  .eq-verdict.valid{color:var(--bull);}
+  .eq-verdict.invalid{color:var(--bear);}
+  .eq-verdict.eq{color:var(--warn);}
+
+  /* STEP TRACKER */
+  .steps{border-top:1px solid var(--border);}
+  .step{display:flex;align-items:flex-start;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);}
+  .step-num{font-family:'Space Mono',monospace;font-size:9px;font-weight:700;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+  .step-num.done{background:var(--bull);color:#000;}
+  .step-num.active{background:var(--warn);color:#000;}
+  .step-num.wait{background:var(--surface2);color:var(--text-dim);border:1px solid var(--border);}
+  .step-body{flex:1;}
+  .step-title{font-size:11px;}
+  .step-title.done{color:var(--text);}
+  .step-title.active{color:var(--warn);font-weight:600;}
+  .step-title.wait{color:var(--text-dim);}
+  .step-sub{font-size:10px;color:var(--text-dim);margin-top:2px;line-height:1.5;}
+  .step-sub.active{color:var(--warn);}
+
+  /* POI CARDS */
+  .poi-section{padding:10px 14px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border);}
+  .poi-section-title{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:2px;}
+  .poi-card{border-radius:8px;overflow:hidden;border:1px solid var(--border);}
+  .poi-card.reached{border-color:var(--warn);box-shadow:0 0 12px rgba(255,184,48,.15);}
+  .poi-card.not-in-eq{opacity:.6;}
+  .poi-header{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--surface2);}
+  .poi-num-label{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:var(--text-bright);}
+  .poi-badges{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
+  .poi-type-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:.05em;}
+  .poi-type-badge.fvg{background:rgba(74,158,255,.15);color:var(--accent);border:1px solid rgba(74,158,255,.3);}
+  .poi-type-badge.ob{background:rgba(0,229,160,.12);color:var(--bull);border:1px solid rgba(0,229,160,.25);}
+  .poi-type-badge.breaker{background:rgba(255,184,48,.1);color:var(--warn);border:1px solid rgba(255,184,48,.2);}
+  .poi-type-badge.mitigation{background:rgba(255,61,107,.1);color:var(--bear);border:1px solid rgba(255,61,107,.2);}
+  .poi-type-badge.ifvg{background:rgba(148,103,255,.15);color:#a78bfa;border:1px solid rgba(148,103,255,.3);}
+  .poi-type-badge.ob-fvg{background:rgba(0,229,160,.12);color:var(--bull);border:1px solid rgba(0,229,160,.25);}
+  .poi-eq-tag{font-size:9px;padding:2px 6px;border-radius:4px;}
+  .poi-eq-tag.valid{background:rgba(0,229,160,.1);color:var(--bull);border:1px solid rgba(0,229,160,.2);}
+  .poi-eq-tag.invalid{background:rgba(255,61,107,.08);color:var(--bear);border:1px solid rgba(255,61,107,.15);}
+  .poi-body{padding:8px 10px;}
+  .poi-zone{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--text-bright);margin-bottom:3px;}
+  .poi-meta{font-size:10px;color:var(--text-dim);line-height:1.6;}
+  .poi-reached-tag{display:inline-block;margin-top:5px;font-size:10px;font-weight:700;color:var(--warn);background:rgba(255,184,48,.1);border:1px solid rgba(255,184,48,.25);border-radius:4px;padding:3px 8px;}
+
+  /* CONFIRMATION PANEL */
+  .confirm-panel{margin:0 14px 12px;border-radius:8px;overflow:hidden;border:1px solid var(--border);}
+  .confirm-header{padding:7px 10px;background:var(--surface2);font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;}
+  .confirm-row{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-top:1px solid var(--border);}
+  .confirm-icon{font-size:13px;flex-shrink:0;margin-top:1px;}
+  .confirm-body{flex:1;}
+  .confirm-title{font-size:11px;color:var(--text);}
+  .confirm-sub{font-size:10px;color:var(--text-dim);margin-top:2px;line-height:1.5;}
+  .confirm-sub.hit{color:var(--bull);}
+  .confirm-sub.waiting{color:var(--warn);}
+
+  /* ENTRY LEVELS */
+  .levels{padding:12px 14px;display:flex;flex-direction:column;gap:9px;border-top:1px solid var(--border);}
+  .level-row{display:flex;align-items:flex-start;gap:10px;}
+  .level-tag{font-family:'Space Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 5px;border-radius:4px;flex-shrink:0;min-width:48px;text-align:center;}
+  .level-tag.entry{background:rgba(74,158,255,.15);color:var(--accent);border:1px solid rgba(74,158,255,.3);}
+  .level-tag.sl{background:rgba(255,61,107,.12);color:var(--bear);border:1px solid rgba(255,61,107,.25);}
+  .level-tag.tp1{background:rgba(0,229,160,.12);color:var(--bull);border:1px solid rgba(0,229,160,.25);}
+  .level-tag.tp2{background:rgba(0,180,120,.1);color:#00c896;border:1px solid rgba(0,180,120,.2);}
+  .level-tag.hi{background:rgba(255,184,48,.1);color:var(--warn);border:1px solid rgba(255,184,48,.2);}
+  .level-tag.lo{background:rgba(255,184,48,.1);color:var(--warn);border:1px solid rgba(255,184,48,.2);}
+  .level-tag.wick{background:rgba(255,61,107,.08);color:var(--bear);border:1px solid rgba(255,61,107,.15);}
+  .level-tag.fts{background:rgba(255,184,48,.1);color:var(--warn);border:1px solid rgba(255,184,48,.2);}
+  .level-tag.efvg{background:rgba(74,158,255,.1);color:var(--accent);border:1px solid rgba(74,158,255,.2);}
+  .level-info{flex:1;}
+  .level-price{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text-bright);}
+  .level-desc{font-size:10px;color:var(--text-dim);margin-top:1px;line-height:1.5;}
+  .rr-badge{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;display:inline-block;margin-top:4px;}
+  .rr-badge.good{background:rgba(0,229,160,.15);color:var(--bull);border:1px solid rgba(0,229,160,.3);}
+  .rr-badge.ok{background:rgba(255,184,48,.1);color:var(--warn);border:1px solid rgba(255,184,48,.2);}
+  .rr-badge.bad{background:rgba(255,61,107,.1);color:var(--bear);border:1px solid rgba(255,61,107,.2);}
+
+  .wait-box{margin:10px 14px;padding:10px 12px;border-radius:8px;font-size:11px;line-height:1.6;border:1px solid rgba(255,184,48,.25);background:rgba(255,184,48,.06);color:var(--warn);}
+
+  .analysis{padding:10px 14px;background:var(--surface2);border-top:1px solid var(--border);}
+  .analysis-title{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;}
+  .analysis-text{font-size:11px;color:var(--text);line-height:1.7;}
+
+  .no-setup{padding:16px;text-align:center;color:var(--text-dim);font-size:11px;}
+  .skeleton{background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:4px;height:12px;}
+  @keyframes shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+  .disclaimer{margin-top:10px;padding:8px 12px;background:rgba(255,184,48,.05);border:1px solid rgba(255,184,48,.15);border-radius:8px;font-size:10px;color:var(--text-dim);line-height:1.5;text-align:center;}
+
+  .score-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+  .score-label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.07em;}
+  .score-dots{display:flex;gap:5px;}
+  .dot{width:10px;height:10px;border-radius:50%;border:1px solid var(--border);background:var(--surface2);}
+  .dot.filled-bull{background:var(--bull);border-color:var(--bull);}
+  .dot.filled-bear{background:var(--bear);border-color:var(--bear);}
+  .score-num{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;margin-left:8px;}
+  .score-num.high{color:var(--bull);}
+  .score-num.mid{color:var(--warn);}
+  .score-num.low{color:var(--text-dim);}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>⬡ SMC SCANNER</h1>
+    <span>ChoCH/BOS · OB+FVG · Sweep · CISD · FTS</span>
+  </div>
+</div>
+
+<div class="pair-selector">
+  <div class="selector-label">Select Pair</div>
+  <div class="pair-buttons">
+    <button class="pair-btn selected" onclick="selectPair(this,'GBP/USD')">GBPUSD</button>
+    <button class="pair-btn" onclick="selectPair(this,'GBP/JPY')">GBPJPY</button>
+    <button class="pair-btn" onclick="selectPair(this,'EUR/USD')">EURUSD</button>
+    <button class="pair-btn" onclick="selectPair(this,'GBP/AUD')">GBPAUD</button>
+    <button class="pair-btn" onclick="selectPair(this,'AUD/USD')">AUDUSD</button>
+  </div>
+  <button class="scan-btn" id="scanBtn" onclick="runScan()">▶ SCAN</button>
+</div>
+
+<div class="session-bar" id="sessionBar"></div>
+<div class="status-bar">
+  <div class="pulse" id="pulse"></div>
+  <span id="statusText">Select a pair then press SCAN</span>
+</div>
+<div class="pairs-grid" id="pairsGrid"></div>
+<div class="disclaimer">⚠ Scanner flags confluence only. Always confirm on your chart before placing orders.</div>
+
+<script>
+const API_KEY='8835de6ad0b94dbd8e94d50c0a552f30';
+const PIP={'GBP/USD':0.0001,'EUR/USD':0.0001,'AUD/USD':0.0001,'GBP/JPY':0.01,'GBP/AUD':0.0001};
+let selectedPair='GBP/USD';
+
+function selectPair(el,pair){
+  document.querySelectorAll('.pair-btn').forEach(b=>b.classList.remove('selected'));
+  el.classList.add('selected');selectedPair=pair;
+  document.getElementById('pairsGrid').innerHTML='';
+  document.getElementById('statusText').textContent=`${pair} selected — press SCAN`;
+  document.getElementById('pulse').className='pulse';
+}
+
+const pip  = pair=>PIP[pair];
+const pips = (pair,dist)=>Math.round(Math.abs(dist)/PIP[pair]);
+const fmt  = (pair,price)=>(!price||isNaN(price))?'—':pair.includes('JPY')?price.toFixed(3):price.toFixed(5);
+const fmtT = t=>t?t.slice(0,16).replace('T',' '):'—';
+
+function getSession(){
+  const h=new Date().getUTCHours();
+  if(h<8)return'Asian';if(h<12)return'London';
+  if(h<13)return'Overlap';if(h<17)return'New York';
+  return'Off-Hours';
+}
+function renderSessionBar(){
+  const S=['Asian','London','Overlap','New York','Off-Hours'],cur=getSession();
+  document.getElementById('sessionBar').innerHTML=
+    S.map(s=>`<div class="session-pill ${s===cur?'active':''}">${s}</div>`).join('');
+}
+
+async function fetchCandles(symbol,interval,size=80){
+  const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=${size}&apikey=${API_KEY}&format=JSON`;
+  const res=await fetch(url);const data=await res.json();
+  if(data.status==='error'||!data.values)throw new Error(data.message||'API error');
+  return data.values.map(c=>({t:c.datetime,o:+c.open,h:+c.high,l:+c.low,c:+c.close})).reverse();
+}
+
+// ══════════════════════════════════════════════
+// BIAS — detect ChoCH and BOS from 1D and 4H
+// ChoCH = first sign of reversal (counter trend break)
+// BOS   = continuation of current trend
+// We look for the MOST RECENT structure event
+// ══════════════════════════════════════════════
+function detectBiasFromStructure(candles){
+  if(candles.length<15)return{bias:'neutral',event:'none',eventIdx:-1};
+  // Get swing highs and lows with lookback 3
+  const SH=[],SL=[];
+  for(let i=3;i<candles.length-3;i++){
+    const sl=candles.slice(i-3,i+4);
+    if(candles[i].h===Math.max(...sl.map(c=>c.h)))SH.push({price:candles[i].h,idx:i,t:candles[i].t});
+    if(candles[i].l===Math.min(...sl.map(c=>c.l)))SL.push({price:candles[i].l,idx:i,t:candles[i].t});
+  }
+  if(SH.length<2||SL.length<2)return{bias:'neutral',event:'none',eventIdx:-1};
+
+  const lastH=SH[SH.length-1],prevH=SH[SH.length-2];
+  const lastL=SL[SL.length-1],prevL=SL[SL.length-2];
+  const last=candles[candles.length-1];
+
+  // Bearish BOS: price breaks below previous swing low (continuation bear)
+  if(last.c<prevL.price&&prevL.price<lastL.price)
+    return{bias:'bear',event:'BOS',eventIdx:candles.length-1};
+  // Bullish BOS: price breaks above previous swing high (continuation bull)
+  if(last.c>prevH.price&&prevH.price>lastH.price)
+    return{bias:'bull',event:'BOS',eventIdx:candles.length-1};
+  // Bearish ChoCH: was bullish (HH/HL) but now breaks below a swing low
+  if(lastH.price>prevH.price&&last.c<lastL.price)
+    return{bias:'bear',event:'ChoCH',eventIdx:candles.length-1};
+  // Bullish ChoCH: was bearish (LL/LH) but now breaks above a swing high
+  if(lastL.price<prevL.price&&last.c>lastH.price)
+    return{bias:'bull',event:'ChoCH',eventIdx:candles.length-1};
+  // Fallback: HH+HL = bull, LL+LH = bear
+  if(lastH.price>prevH.price&&lastL.price>prevL.price)return{bias:'bull',event:'trend',eventIdx:-1};
+  if(lastH.price<prevH.price&&lastL.price<prevL.price)return{bias:'bear',event:'trend',eventIdx:-1};
+  return{bias:'neutral',event:'none',eventIdx:-1};
+}
+
+// ══════════════════════════════════════════════
+// EQUILIBRIUM — 50% of 4H swing range
+// ══════════════════════════════════════════════
+function getEquilibrium(candles4h){
+  const recent=candles4h.slice(-40);
+  const high=Math.max(...recent.map(c=>c.h));
+  const low=Math.min(...recent.map(c=>c.l));
+  const mid=(high+low)/2;
+  return{high,low,mid};
+}
+function eqPct(price,eq){
+  const r=eq.high-eq.low;
+  return r?Math.round(((price-eq.low)/r)*100):50;
+}
+
+// ══════════════════════════════════════════════
+// SWING POINTS
+// ══════════════════════════════════════════════
+function getSwings(candles,lb=4){
+  const SH=[],SL=[];
+  for(let i=lb;i<candles.length-lb;i++){
+    const sl=candles.slice(i-lb,i+lb+1);
+    if(candles[i].h===Math.max(...sl.map(c=>c.h)))SH.push({price:candles[i].h,idx:i,t:candles[i].t});
+    if(candles[i].l===Math.min(...sl.map(c=>c.l)))SL.push({price:candles[i].l,idx:i,t:candles[i].t});
+  }
+  return{latestHigh:SH[SH.length-1],latestLow:SL[SL.length-1],
+         prevHigh:SH[SH.length-2],prevLow:SL[SL.length-2],
+         allHighs:SH,allLows:SL};
+}
+
+// ══════════════════════════════════════════════
+// POI DETECTION — origin candles that caused BOS/ChoCH
+// Returns ALL POIs found: OB zone + FVG from same impulse
+// Each impulse = one POI entry containing both OB and FVG
+// ══════════════════════════════════════════════
+function findImpulses(candles,bias){
+  // Find all strong impulse candles that broke structure
+  const impulses=[];
+  for(let i=5;i<candles.length-1;i++){
+    const c=candles[i];
+    const body=Math.abs(c.c-c.o);
+    const range=c.h-c.l;
+    if(body<range*0.4)continue; // weak candle, skip
+    const prior=candles.slice(Math.max(0,i-8),i);
+    if(bias==='bear'&&c.c<c.o){
+      const prevLow=Math.min(...prior.map(x=>x.l));
+      if(c.c<prevLow)impulses.push(i);
+    }
+    if(bias==='bull'&&c.c>c.o){
+      const prevHigh=Math.max(...prior.map(x=>x.h));
+      if(c.c>prevHigh)impulses.push(i);
+    }
+  }
+  return impulses;
+}
+
+function buildPOIsFromImpulse(candles,impulseIdx,bias,eq,tf){
+  const pois=[];
+  if(impulseIdx<3)return pois;
+
+  // Origin candles = last 2-3 candles BEFORE the impulse
+  // For bear: last 2-3 bullish candles before the drop
+  // For bull: last 2-3 bearish candles before the rise
+  const origin=[];
+  for(let i=impulseIdx-1;i>=Math.max(0,impulseIdx-3);i--){
+    const c=candles[i];
+    if(bias==='bear'&&c.c>=c.o)origin.unshift(c); // bullish candles
+    else if(bias==='bull'&&c.c<=c.o)origin.unshift(c); // bearish candles
+    else break;
+  }
+  if(!origin.length){
+    // fallback: just take the 2 candles before impulse
+    origin.push(...candles.slice(Math.max(0,impulseIdx-2),impulseIdx));
+  }
+
+  const obTop=Math.max(...origin.map(c=>c.h));
+  const obBot=Math.min(...origin.map(c=>c.l));
+  const obMid=(obTop+obBot)/2;
+  const inEQ=bias==='bear'?obMid>=eq.mid:obMid<=eq.mid;
+
+  // OB POI
+  pois.push({
+    type:'OB',label:'Order Block',
+    top:obTop,bot:obBot,mid:obMid,
+    timeStart:origin[0].t,
+    timeEnd:origin[origin.length-1].t,
+    bosTime:candles[impulseIdx].t,
+    tf,inEQ,reached:false
+  });
+
+  // FVG from the impulse: gap between candle[impulseIdx-1].h and candle[impulseIdx+1].l (bear)
+  if(impulseIdx+1<candles.length){
+    const prev=candles[impulseIdx-1];
+    const next=candles[Math.min(impulseIdx+1,candles.length-1)];
+    if(bias==='bear'&&next.h<prev.l){
+      const fvgTop=prev.l,fvgBot=next.h,fvgMid=(prev.l+next.h)/2;
+      pois.push({
+        type:'FVG',label:'Fair Value Gap',
+        top:fvgTop,bot:fvgBot,mid:fvgMid,
+        timeStart:candles[impulseIdx].t,
+        timeEnd:next.t,
+        bosTime:candles[impulseIdx].t,
+        tf,inEQ:fvgMid>=eq.mid,reached:false
+      });
+    }
+    if(bias==='bull'&&next.l>prev.h){
+      const fvgTop=next.l,fvgBot=prev.h,fvgMid=(next.l+prev.h)/2;
+      pois.push({
+        type:'FVG',label:'Fair Value Gap',
+        top:fvgTop,bot:fvgBot,mid:fvgMid,
+        timeStart:candles[impulseIdx].t,
+        timeEnd:next.t,
+        bosTime:candles[impulseIdx].t,
+        tf,inEQ:fvgMid<=eq.mid,reached:false
+      });
+    }
+  }
+
+  return pois;
+}
+
+function detectAllPOIs(candles4h,candles1h,bias,eq){
+  if(bias==='neutral')return[];
+  const allPOIs=[];
+
+  // From 4H — find all impulses, build POIs
+  const imp4h=findImpulses(candles4h,bias);
+  // Take last 3 impulses max
+  imp4h.slice(-3).forEach(idx=>{
+    buildPOIsFromImpulse(candles4h,idx,bias,eq,'4H').forEach(p=>allPOIs.push(p));
+  });
+
+  // From 1H — find all impulses
+  const imp1h=findImpulses(candles1h,bias);
+  imp1h.slice(-2).forEach(idx=>{
+    buildPOIsFromImpulse(candles1h,idx,bias,eq,'1H').forEach(p=>allPOIs.push(p));
+  });
+
+  // Deduplicate by proximity (within 20 pips)
+  const deduped=[];
+  allPOIs.forEach(p=>{
+    const dupe=deduped.some(q=>Math.abs(q.mid-p.mid)<pip(selectedPair)*20&&q.tf===p.tf);
+    if(!dupe)deduped.push(p);
+  });
+
+  // Sort by proximity to current price (closest first)
+  return deduped;
+}
+
+// ══════════════════════════════════════════════
+// LIQUIDITY SWEEP (15m)
+// Wick OR body close back through swing level
+// ══════════════════════════════════════════════
+function detectSweep(candles15m,bias){
+  const sw=getSwings(candles15m,3);
+  if(!sw.latestHigh||!sw.latestLow)return{swept:false};
+  const buf=pip(selectedPair)*3;
+  const last=candles15m[candles15m.length-1];
+  const prev=candles15m[candles15m.length-2];
+
+  if(bias==='bull'){
+    const lv=sw.latestLow.price;
+    // Wick sweep: low went below, close back above
+    const wickSwept=(prev.l<lv||last.l<lv)&&last.c>lv;
+    // Body sweep: close came back 3+ pips above
+    const bodySwept=(prev.l<lv||last.l<lv)&&last.c>=(lv+buf);
+    if(wickSwept||bodySwept){
+      const sc=prev.l<lv?prev:last;
+      return{swept:true,sweepLevel:lv,wickLevel:Math.min(prev.l,last.l),
+             sweepTime:sc.t,sweepClose:last.c,method:bodySwept?'Body close':'Wick'};
+    }
+  }
+  if(bias==='bear'){
+    const lv=sw.latestHigh.price;
+    const wickSwept=(prev.h>lv||last.h>lv)&&last.c<lv;
+    const bodySwept=(prev.h>lv||last.h>lv)&&last.c<=(lv-buf);
+    if(wickSwept||bodySwept){
+      const sc=prev.h>lv?prev:last;
+      return{swept:true,sweepLevel:lv,wickLevel:Math.max(prev.h,last.h),
+             sweepTime:sc.t,sweepClose:last.c,method:bodySwept?'Body close':'Wick'};
+    }
+  }
+  return{swept:false};
+}
+
+// ══════════════════════════════════════════════
+// CISD — based on OPEN of last opposing candle
+// Bullish CISD: close ABOVE open of last bearish candle
+// Bearish CISD: close BELOW open of last bullish candle
+// Check 15m first, then 5m
+// ══════════════════════════════════════════════
+function detectCISD(candles,bias){
+  if(candles.length<4)return{confirmed:false};
+  const recent=candles.slice(-8);
+  const last=recent[recent.length-1];
+
+  if(bias==='bull'){
+    // Find last bearish candle before current
+    for(let i=recent.length-2;i>=0;i--){
+      if(recent[i].c<recent[i].o){
+        // Bullish CISD: current candle closes ABOVE the open of that bearish candle
+        if(last.c>recent[i].o&&last.c>last.o){
+          return{confirmed:true,triggerOpen:recent[i].o,
+                 triggerCandleTime:recent[i].t,confirmTime:last.t};
+        }
+        break;
+      }
+    }
+  }
+  if(bias==='bear'){
+    // Find last bullish candle before current
+    for(let i=recent.length-2;i>=0;i--){
+      if(recent[i].c>recent[i].o){
+        // Bearish CISD: current candle closes BELOW the open of that bullish candle
+        if(last.c<recent[i].o&&last.c<last.o){
+          return{confirmed:true,triggerOpen:recent[i].o,
+                 triggerCandleTime:recent[i].t,confirmTime:last.t};
+        }
+        break;
+      }
+    }
+  }
+  return{confirmed:false};
+}
+
+// ══════════════════════════════════════════════
+// FAILURE TO SWING (5m)
+// After CISD, price attempts to continue but fails
+// Bull FTS: bearish candle that fails to make lower low → next bull candle
+// Bear FTS: bullish candle that fails to make higher high → next bear candle
+// ══════════════════════════════════════════════
+function detectFTS(candles5m,bias){
+  if(candles5m.length<4)return null;
+  const r=candles5m.slice(-5);
+  const last=r[r.length-1];
+  const prev=r[r.length-2];
+  const pprev=r[r.length-3];
+
+  if(bias==='bull'){
+    // FTS = bearish candle (prev) fails to go lower than pprev.low
+    // then last candle is bullish = FTS confirmed
+    if(prev.l>pprev.l&&last.c>last.o&&last.c>prev.o){
+      return{high:last.h,low:last.l,open:last.o,close:last.c,
+             ftsLow:prev.l,time:last.t,prevTime:prev.t};
+    }
+  }
+  if(bias==='bear'){
+    // FTS = bullish candle (prev) fails to go higher than pprev.high
+    // then last candle is bearish = FTS confirmed
+    if(prev.h<pprev.h&&last.c<last.o&&last.c<prev.o){
+      return{high:last.h,low:last.l,open:last.o,close:last.c,
+             ftsHigh:prev.h,time:last.t,prevTime:prev.t};
+    }
+  }
+  return null;
+}
+
+// ══════════════════════════════════════════════
+// ENTRY FVG — small FVG inside the FTS zone on 5m
+// This is the actual pending order zone
+// ══════════════════════════════════════════════
+function findEntryFVG(candles5m,fts,bias){
+  if(!fts)return null;
+  // Look at recent 5m candles for a small FVG
+  const recent=candles5m.slice(-6);
+  for(let i=2;i<recent.length;i++){
+    const a=recent[i-2],c=recent[i];
+    if(bias==='bull'&&c.l>a.h){
+      const fvgMid=(c.l+a.h)/2;
+      // FVG should be inside or near FTS zone
+      if(fvgMid>=fts.low-pip(selectedPair)*5&&fvgMid<=fts.high+pip(selectedPair)*5){
+        return{top:c.l,bot:a.h,mid:fvgMid,
+               entry:a.h, // BUY LIMIT at bottom of FVG
+               time:recent[i-1].t};
+      }
+    }
+    if(bias==='bear'&&c.h<a.l){
+      const fvgMid=(a.l+c.h)/2;
+      if(fvgMid>=fts.low-pip(selectedPair)*5&&fvgMid<=fts.high+pip(selectedPair)*5){
+        return{top:a.l,bot:c.h,mid:fvgMid,
+               entry:a.l, // SELL LIMIT at top of FVG
+               time:recent[i-1].t};
+      }
+    }
+  }
+  // Fallback: use FTS candle body 50%
+  if(bias==='bull'){
+    const bot=Math.min(fts.open,fts.close);
+    const top=Math.max(fts.open,fts.close);
+    return{top,bot,mid:(top+bot)/2,entry:bot,time:fts.time,fallback:true};
+  }
+  if(bias==='bear'){
+    const bot=Math.min(fts.open,fts.close);
+    const top=Math.max(fts.open,fts.close);
+    return{top,bot,mid:(top+bot)/2,entry:top,time:fts.time,fallback:true};
+  }
+  return null;
+}
+
+// SL: below sweep wick + buffer
+function calcSL(pair,bias,sweepWick){
+  const buf=pip(pair)*5;
+  if(bias==='bull')return sweepWick?sweepWick-buf:null;
+  if(bias==='bear')return sweepWick?sweepWick+buf:null;
+  return null;
+}
+
+// TP: score 5 = furthest liquidity, score 4 = nearest
+function calcTP(bias,entry,swings1h,swings4h,score){
+  if(bias==='bull'){
+    const all=[...(swings1h.allHighs||[]),...(swings4h.allHighs||[])]
+      .filter(s=>s.price>entry).sort((a,b)=>a.price-b.price);
+    if(!all.length)return{tp1:null,tp2:null};
+    return{tp1:all[0].price,tp2:all.length>1?all[all.length-1].price:null};
+  }
+  if(bias==='bear'){
+    const all=[...(swings1h.allLows||[]),...(swings4h.allLows||[])]
+      .filter(s=>s.price<entry).sort((a,b)=>b.price-a.price);
+    if(!all.length)return{tp1:null,tp2:null};
+    return{tp1:all[0].price,tp2:all.length>1?all[all.length-1].price:null};
+  }
+  return{tp1:null,tp2:null};
+}
+
+function rrClass(rr){const n=+rr;return n>=2?'good':n>=1.5?'ok':'bad';}
+
+// ══════════════════════════════════════════════
+// MAIN SCAN
+// ══════════════════════════════════════════════
+async function scanPair(pair){
+  const [c1d,c4h,c1h,c15m,c5m]=await Promise.all([
+    fetchCandles(pair,'1day',40),
+    fetchCandles(pair,'4h',80),
+    fetchCandles(pair,'1h',80),
+    fetchCandles(pair,'15min',60),
+    fetchCandles(pair,'5min',60),
+  ]);
+
+  const currentPrice=c5m[c5m.length-1].c;
+
+  // ── Bias from 1D and 4H ──
+  const bias1d=detectBiasFromStructure(c1d);
+  const bias4h=detectBiasFromStructure(c4h);
+  const bias1h=detectBiasFromStructure(c1h);
+
+  // Dominant bias: 1D leads, 4H must agree
+  let bias='neutral';
+  if(bias1d.bias===bias4h.bias&&bias1d.bias!=='neutral') bias=bias1d.bias;
+  else if(bias4h.bias!=='neutral') bias=bias4h.bias;
+  else if(bias1d.bias!=='neutral') bias=bias1d.bias;
+
+  // ── Equilibrium ──
+  const eq=getEquilibrium(c4h);
+  const pricePct=eqPct(currentPrice,eq);
+  const priceZone=pricePct>55?'Premium':pricePct<45?'Discount':'Equilibrium';
+  const zoneValid=(bias==='bull'&&priceZone!=='Premium')||(bias==='bear'&&priceZone!=='Discount');
+
+  // ── POIs ──
+  const allPOIs=detectAllPOIs(c4h,c1h,bias,eq);
+  const bufReach=pip(pair)*20;
+  allPOIs.forEach((p,i)=>{
+    p.reached=currentPrice>=(p.bot-bufReach)&&currentPrice<=(p.top+bufReach);
+    p.number=i+1;
+  });
+  const reachedPOIs=allPOIs.filter(p=>p.reached);
+  const primaryPOI=reachedPOIs.find(p=>p.inEQ)??reachedPOIs[0]??null;
+  const priceAtPOI=reachedPOIs.length>0;
+
+  // ── Swings ──
+  const swings4h=getSwings(c4h,5);
+  const swings1h=getSwings(c1h,4);
+
+  // ── Sweep on 15m ──
+  const sweep=detectSweep(c15m,bias);
+
+  // ── CISD — 15m first, then 5m ──
+  let cisd={confirmed:false},cisdTF=null;
+  if(sweep.swept){
+    const c15=detectCISD(c15m,bias);
+    if(c15.confirmed){cisd=c15;cisdTF='15m';}
+    else{
+      const c5=detectCISD(c5m,bias);
+      if(c5.confirmed){cisd=c5;cisdTF='5m';}
+    }
+  }
+
+  // ── FTS on 5m (only after CISD) ──
+  const fts=cisd.confirmed?detectFTS(c5m,bias):null;
+
+  // ── Entry FVG inside FTS ──
+  const entryFVG=fts?findEntryFVG(c5m,fts,bias):null;
+
+  // ── SL and TP ──
+  let sl=null,tp1=null,tp2=null,slPips=null,tp1Pips=null,tp2Pips=null,rr1=null,rr2=null;
+  const entryReady=!!fts&&!!entryFVG&&sweep.swept&&cisd.confirmed;
+
+  if(entryReady&&entryFVG?.entry){
+    sl=calcSL(pair,bias,sweep.wickLevel);
+    const tps=calcTP(bias,entryFVG.entry,swings1h,swings4h);
+    tp1=tps.tp1;tp2=tps.tp2;
+    if(sl&&tp1){
+      slPips=pips(pair,Math.abs(entryFVG.entry-sl));
+      tp1Pips=pips(pair,Math.abs(tp1-entryFVG.entry));
+      rr1=slPips>0?(tp1Pips/slPips).toFixed(1):'?';
+      if(tp2){
+        tp2Pips=pips(pair,Math.abs(tp2-entryFVG.entry));
+        rr2=slPips>0?(tp2Pips/slPips).toFixed(1):'?';
+      }
+    }
+  }
+
+  // ── Confluence Score ──
+  const conditions=[
+    {label:'HTF Bias (1D + 4H)',        met:bias!=='neutral'},
+    {label:'POI in correct EQ zone',    met:allPOIs.some(p=>p.inEQ)},
+    {label:'Price reached POI',         met:priceAtPOI},
+    {label:'Liquidity sweep on 15m',    met:sweep.swept},
+    {label:'CISD + FTS on 5m',         met:cisd.confirmed&&!!fts},
+  ];
+  const score=conditions.filter(c=>c.met).length;
+
+  // ── Step tracker ──
+  let currentStep=0;
+  if(bias!=='neutral')currentStep=1;
+  if(allPOIs.some(p=>p.inEQ))currentStep=2;
+  if(priceAtPOI)currentStep=3;
+  if(sweep.swept)currentStep=4;
+  if(cisd.confirmed&&fts)currentStep=5;
+
+  // ── Analysis ──
+  const session=getSession();
+  const dir=bias==='bull'?'bullish':'bearish';
+  const act=bias==='bull'?'BUY LIMIT':'SELL LIMIT';
+  let analysis='';
+
+  if(bias==='neutral'){
+    analysis=`1D and 4H show no clear BOS or ChoCH alignment. Market has no confirmed bias. Wait for a clean structural event before doing anything.`;
+  } else {
+    analysis=`${bias1d.event!=='none'?`1D ${bias1d.event}`:''} + ${bias4h.event!=='none'?`4H ${bias4h.event}`:''} → bias is ${dir}. `;
+    analysis+=`Price is at ${pricePct}% of 4H range (${priceZone}). `;
+    if(!allPOIs.length) analysis+=`No origin POIs detected yet. Wait for a BOS or ChoCH impulse to form. `;
+    else if(!priceAtPOI) analysis+=`${allPOIs.length} POI(s) mapped. Price has not reached any yet — watch levels below. `;
+    else analysis+=`Price has reached ${reachedPOIs.length} POI zone(s). `;
+    if(priceAtPOI&&!sweep.swept) analysis+=`Inside POI — watching for 15m liquidity sweep. Do NOT enter. `;
+    if(sweep.swept) analysis+=`15m sweep confirmed (${sweep.method}) at ${fmt(pair,sweep.wickLevel)} · ${fmtT(sweep.sweepTime)}. `;
+    if(sweep.swept&&!cisd.confirmed) analysis+=`Checking ${cisdTF||'15m then 5m'} for CISD (close ${bias==='bull'?'above':'below'} open of last opposing candle). `;
+    if(cisd.confirmed) analysis+=`CISD on ${cisdTF} ✓ — close ${bias==='bull'?'above':'below'} open of ${fmt(pair,cisd.triggerOpen)}. `;
+    if(cisd.confirmed&&!fts) analysis+=`Watching 5m for FTS candle to close. `;
+    if(fts&&!entryFVG) analysis+=`FTS formed. Looking for small FVG inside FTS zone. `;
+    if(entryReady&&sl&&tp1){
+      analysis+=`Entry FVG found inside FTS ✓. Place ${act} at ${fmt(pair,entryFVG.entry)}. SL ${fmt(pair,sl)} (${slPips} pips). TP1 ${fmt(pair,tp1)} (${tp1Pips} pips, RR 1:${rr1})${tp2?`, TP2 ${fmt(pair,tp2)} (${tp2Pips} pips, RR 1:${rr2})`:''}. ${session} session.`;
+    }
+  }
+
+  return{
+    pair,currentPrice,bias,bias1d,bias4h,bias1h,
+    eq,pricePct,priceZone,zoneValid,
+    allPOIs,reachedPOIs,primaryPOI,priceAtPOI,
+    sweep,cisd,cisdTF,fts,entryFVG,entryReady,
+    sl,tp1,tp2,slPips,tp1Pips,tp2Pips,rr1,rr2,
+    score,conditions,swings1h,swings4h,currentStep,analysis,session
+  };
+}
+
+// ══════════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════════
+function renderCard(r){
+  const{pair,currentPrice,bias,bias1d,bias4h,bias1h,
+        eq,pricePct,priceZone,zoneValid,
+        allPOIs,reachedPOIs,priceAtPOI,
+        sweep,cisd,cisdTF,fts,entryFVG,entryReady,
+        sl,tp1,tp2,slPips,tp1Pips,tp2Pips,rr1,rr2,
+        score,conditions,swings1h,currentStep,analysis}=r;
+
+  const bc=bias==='bull'?'bull':bias==='bear'?'bear':'neutral';
+  const bl=bias==='bull'?'BULLISH':bias==='bear'?'BEARISH':'RANGING';
+  const sc=score>=4?'high':score>=3?'mid':'low';
+  const dc=bias==='bull'?'filled-bull':'filled-bear';
+  const dots=Array.from({length:5},(_,i)=>`<div class="dot ${i<score?dc:''}"></div>`).join('');
+
+  // EQ bar
+  const pct=Math.min(98,Math.max(2,r.pricePct));
+  const eqVC=priceZone==='Discount'?'valid':priceZone==='Premium'?'invalid':'eq';
+  const eqVT=bias==='bull'
+    ?(priceZone==='Discount'?'✓ In Discount — valid for buys':priceZone==='Premium'?'⚠ In Premium — wait for lower POI':'At equilibrium — either POI valid')
+    :(priceZone==='Premium'?'✓ In Premium — valid for sells':priceZone==='Discount'?'⚠ In Discount — wait for higher POI':'At equilibrium — either POI valid');
+
+  const eqBar=`<div class="eq-section">
+    <div class="eq-label">4H Equilibrium Range</div>
+    <div class="eq-bar-wrap">
+      <div class="eq-zone-discount"></div>
+      <div class="eq-zone-premium"></div>
+      <div class="eq-mid-line"></div>
+      <div class="eq-price-dot ${bc}" style="left:${pct}%"></div>
+    </div>
+    <div class="eq-labels">
+      <span>${fmt(pair,eq.low)}</span>
+      <span class="eq-mid-label">50% · ${fmt(pair,eq.mid)}</span>
+      <span>${fmt(pair,eq.high)}</span>
+    </div>
+    <div class="eq-verdict ${eqVC}">${eqVT} · Price at ${pricePct}%</div>
+  </div>`;
+
+  // Confluence
+  const condHTML=`<div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--border)">
+    ${conditions.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:11px;color:var(--text-dim)">${c.label}</span>
+      <span style="font-size:11px;font-weight:600;color:${c.met?'var(--bull)':'var(--text-dim)'}">${c.met?'✓ YES':'— NO'}</span>
+    </div>`).join('')}
+  </div>`;
+
+  // Steps
+  const stepDefs=[
+    {title:'HTF Bias',
+     sub:`1D: ${bias1d.event} (${bias1d.bias}) · 4H: ${bias4h.event} (${bias4h.bias})`},
+    {title:'POI mapped in correct EQ zone',
+     sub:allPOIs.length?`${allPOIs.length} POI(s) found · ${allPOIs.filter(p=>p.inEQ).length} in ${bias==='bull'?'discount':'premium'} zone`:'Waiting for BOS/ChoCH origin candles'},
+    {title:'Price reached POI zone',
+     sub:priceAtPOI?`${reachedPOIs.length} zone(s) reached`:'Watching for price to arrive at POI'},
+    {title:'15m liquidity sweep inside POI',
+     sub:sweep.swept?`✓ ${sweep.method} · Wick: ${fmt(pair,sweep.wickLevel)} · ${fmtT(sweep.sweepTime)}`:'Waiting — price must sweep $$$ inside POI'},
+    {title:'CISD + FTS → find entry FVG',
+     sub:cisd.confirmed
+       ?(fts?`CISD on ${cisdTF} ✓ · FTS at ${fmtT(fts.time)} ✓${entryFVG?' · Entry FVG found ✓':' · Looking for small FVG inside FTS'}`)
+       :(sweep.swept?`Close must be ${bias==='bull'?'above':'below'} open of last opposing candle`:'—')},
+  ];
+  const stepsHTML=`<div class="steps">`+stepDefs.map((s,i)=>{
+    const done=currentStep>i+1,active=currentStep===i+1;
+    const cls=done?'done':active?'active':'wait';
+    return`<div class="step">
+      <div class="step-num ${cls}">${done?'✓':i+1}</div>
+      <div class="step-body">
+        <div class="step-title ${cls}">${s.title}</div>
+        <div class="step-sub ${active?'active':''}">${s.sub}</div>
+      </div>
+    </div>`;
+  }).join('')+`</div>`;
+
+  // POI cards
+  const typeClass=t=>({OB:'ob',FVG:'fvg',Breaker:'breaker',Mitigation:'mitigation',InvFVG:'ifvg'}[t]||'fvg');
+  const poisHTML=allPOIs.length?`<div class="poi-section">
+    <div class="poi-section-title">POI Zones — ${allPOIs.length} detected</div>
+    ${allPOIs.map((poi,i)=>`
+      <div class="poi-card ${poi.reached?'reached':''} ${!poi.inEQ?'not-in-eq':''}">
+        <div class="poi-header">
+          <span class="poi-num-label">POI ${i+1} · ${poi.tf}</span>
+          <div class="poi-badges">
+            <span class="poi-eq-tag ${poi.inEQ?'valid':'invalid'}">${poi.inEQ?'✓ In zone':'Outside EQ'}</span>
+            <span class="poi-type-badge ${typeClass(poi.type)}">${poi.type}</span>
+          </div>
+        </div>
+        <div class="poi-body">
+          <div class="poi-zone">${fmt(pair,poi.bot)} – ${fmt(pair,poi.top)}</div>
+          <div class="poi-meta">
+            Mid: ${fmt(pair,poi.mid)} · ${poi.label}<br>
+            📅 Candle: ${fmtT(poi.timeStart)}${poi.timeEnd&&poi.timeEnd!==poi.timeStart?' → '+fmtT(poi.timeEnd):''}<br>
+            ⚡ BOS/ChoCH impulse: ${fmtT(poi.bosTime)}
+          </div>
+          ${poi.reached?`<div class="poi-reached-tag">🎯 REACHED — Looking for confirmation</div>`:''}
+        </div>
+      </div>`).join('')}
+  </div>`:'';
+
+  // Entry levels
+  let levelsHTML='';
+  if(entryReady&&sl&&tp1){
+    levelsHTML=`<div class="levels">
+      ${swings1h.latestHigh?`<div class="level-row">
+        <span class="level-tag hi">HIGH</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,swings1h.latestHigh.price)}</div>
+          <div class="level-desc">1H Swing High — Buy-side liquidity · ${fmtT(swings1h.latestHigh.t)}</div>
+        </div></div>`:''}
+      ${swings1h.latestLow?`<div class="level-row">
+        <span class="level-tag lo">LOW</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,swings1h.latestLow.price)}</div>
+          <div class="level-desc">1H Swing Low — Sell-side liquidity · ${fmtT(swings1h.latestLow.t)}</div>
+        </div></div>`:''}
+      ${sweep.wickLevel?`<div class="level-row">
+        <span class="level-tag wick">WICK</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,sweep.wickLevel)}</div>
+          <div class="level-desc">15m sweep wick extreme · ${fmtT(sweep.sweepTime)} · ${sweep.method}</div>
+        </div></div>`:''}
+      ${fts?`<div class="level-row">
+        <span class="level-tag fts">FTS</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,fts.low)} – ${fmt(pair,fts.high)}</div>
+          <div class="level-desc">Failure to Swing zone (5m) · ${fmtT(fts.time)}</div>
+        </div></div>`:''}
+      ${entryFVG?`<div class="level-row">
+        <span class="level-tag efvg">E-FVG</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,entryFVG.bot)} – ${fmt(pair,entryFVG.top)}</div>
+          <div class="level-desc">Small FVG inside FTS${entryFVG.fallback?' (body fallback)':''} · ${fmtT(entryFVG.time)}</div>
+        </div></div>`:''}
+      <div class="level-row">
+        <span class="level-tag entry">ENTRY</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,entryFVG?.entry)}</div>
+          <div class="level-desc">Pending ${bias==='bull'?'BUY':'SELL'} LIMIT · ${bias==='bull'?'Bottom':'Top'} of entry FVG</div>
+        </div>
+      </div>
+      <div class="level-row">
+        <span class="level-tag sl">SL</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,sl)}</div>
+          <div class="level-desc">${slPips} pips · ${bias==='bull'?'Below':'Above'} sweep wick + 5 pip buffer</div>
+        </div>
+      </div>
+      <div class="level-row">
+        <span class="level-tag tp1">TP1</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,tp1)}</div>
+          <div class="level-desc">${tp1Pips} pips · Nearest liquidity
+            <span class="rr-badge ${rrClass(rr1)}">RR 1:${rr1}</span>
+          </div>
+        </div>
+      </div>
+      ${tp2?`<div class="level-row">
+        <span class="level-tag tp2">TP2</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,tp2)}</div>
+          <div class="level-desc">${tp2Pips} pips · Major liquidity
+            <span class="rr-badge ${rrClass(rr2)}">RR 1:${rr2}</span>
+          </div>
+        </div></div>`:''}
+    </div>`;
+  } else if(sweep.swept){
+    levelsHTML=`<div class="wait-box">${
+      cisd.confirmed&&fts?'FTS confirmed ✓ — searching for small FVG inside FTS zone for entry.'
+      :cisd.confirmed?'CISD confirmed ✓ — watching 5m for FTS candle to close.'
+      :`Sweep confirmed ✓ — watching for CISD. A candle must close ${bias==='bull'?'above the open of the last bearish':'below the open of the last bullish'} candle on 15m or 5m.`
+    }</div>`;
+  }
+
+  return`<div class="pair-card ${bias==='bull'?'bullish':bias==='bear'?'bearish':''}">
+    <div class="card-header">
+      <div>
+        <div class="pair-name">${pair.replace('/','')}</div>
+        <div class="pair-price">${fmt(pair,currentPrice)}</div>
+      </div>
+      <span class="bias-badge ${bc}">${bl}</span>
+    </div>
+    <div class="section-label">Structure</div>
+    <div class="tf-row">
+      <span class="tf-chip ${bias1d.bias}">1D: ${bias1d.event||bias1d.bias}</span>
+      <span class="tf-chip ${bias4h.bias}">4H: ${bias4h.event||bias4h.bias}</span>
+      <span class="tf-chip ${bias1h.bias}">1H: ${bias1h.event||bias1h.bias}</span>
+    </div>
+    ${eqBar}
+    <div class="score-row">
+      <span class="score-label">Confluence</span>
+      <div style="display:flex;align-items:center">
+        <div class="score-dots">${dots}</div>
+        <span class="score-num ${sc}">&nbsp;${score}/5</span>
+      </div>
+    </div>
+    ${condHTML}
+    ${stepsHTML}
+    ${poisHTML}
+    ${levelsHTML}
+    <div class="analysis">
+      <div class="analysis-title">Analysis</div>
+      <div class="analysis-text">${analysis}</div>
+    </div>
+  </div>`;
+}
+
+async function runScan(){
+  const btn=document.getElementById('scanBtn');
+  const pulse=document.getElementById('pulse');
+  const st=document.getElementById('statusText');
+  const grid=document.getElementById('pairsGrid');
+  btn.disabled=true;btn.textContent='⏳ SCANNING…';
+  pulse.className='pulse scanning';
+  st.textContent=`Fetching ${selectedPair} — 5 timeframes…`;
+  grid.innerHTML=`<div class="pair-card">
+    <div class="card-header"><div class="pair-name">${selectedPair.replace('/','')}</div>
+    <span class="bias-badge neutral">SCANNING…</span></div>
+    <div style="padding:14px;display:flex;flex-direction:column;gap:8px">
+      <div class="skeleton" style="width:80%"></div><div class="skeleton" style="width:60%"></div>
+      <div class="skeleton" style="width:70%"></div><div class="skeleton" style="width:50%"></div>
+    </div></div>`;
+  try{
+    const result=await scanPair(selectedPair);
+    grid.innerHTML=renderCard(result);
+    const now=new Date().toUTCString().slice(0,25);
+    pulse.className='pulse done';
+    st.textContent=`${selectedPair} · ${now} UTC · Score ${result.score}/5 · Step ${result.currentStep}/5`;
+  }catch(err){
+    grid.innerHTML=`<div class="pair-card">
+      <div class="card-header"><div class="pair-name">${selectedPair.replace('/','')}</div>
+      <span class="bias-badge neutral">ERROR</span></div>
+      <div class="no-setup" style="color:var(--bear)">⚠ ${err.message}<br><br>Rate limit — wait 60s then rescan.</div>
+    </div>`;
+    pulse.className='pulse error';
+    st.textContent=`Error — ${err.message}`;
+  }
+  btn.disabled=false;btn.textContent='↺ RESCAN';
+  renderSessionBar();
+}
+renderSessionBar();
+</script>
+</body>
+</html>

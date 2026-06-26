@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>SMC Forex Scanner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+  :root{
+    --bg:#080c12;--surface:#0d1520;--surface2:#111d2e;--border:#1a2d45;
+    --bull:#00e5a0;--bear:#ff3d6b;--neutral:#4a9eff;--warn:#ffb830;
+    --text:#c8d8e8;--text-dim:#4a6080;--text-bright:#e8f4ff;--accent:#4a9eff;
+    --glow-bull:0 0 20px rgba(0,229,160,.15);--glow-bear:0 0 20px rgba(255,61,107,.15);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;min-height:100vh;padding:12px;font-size:13px;}
+
+  .header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:12px;}
+  .header h1{font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--text-bright);letter-spacing:.05em;}
+  .header span{font-size:10px;color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;}
+
+  .pair-selector{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+  .selector-label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;}
+  .pair-buttons{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px;}
+  .pair-btn{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);cursor:pointer;transition:all .15s;letter-spacing:.04em;}
+  .pair-btn.selected{background:rgba(74,158,255,.15);border-color:var(--accent);color:var(--accent);}
+  .pair-btn:active{transform:scale(.95);}
+  .scan-btn{width:100%;background:linear-gradient(135deg,#1a4a8a,#0d2d5e);border:1px solid var(--accent);color:var(--accent);font-family:'Space Mono',monospace;font-size:12px;font-weight:700;padding:11px 16px;border-radius:8px;cursor:pointer;letter-spacing:.08em;}
+  .scan-btn:disabled{opacity:.5;cursor:not-allowed;}
+
+  .session-bar{display:flex;gap:6px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px;}
+  .session-pill{flex-shrink:0;padding:5px 10px;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);}
+  .session-pill.active{background:rgba(74,158,255,.15);border-color:var(--accent);color:var(--accent);}
+
+  .status-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;font-size:11px;color:var(--text-dim);}
+  .pulse{width:7px;height:7px;border-radius:50%;background:var(--text-dim);flex-shrink:0;}
+  .pulse.scanning{background:var(--warn);animation:blink .8s infinite;}
+  .pulse.done{background:var(--bull);}
+  .pulse.error{background:var(--bear);}
+  @keyframes blink{0%,100%{opacity:1;}50%{opacity:.2;}}
+
+  .pairs-grid{display:flex;flex-direction:column;gap:10px;}
+  .pair-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  .pair-card.bullish{border-color:rgba(0,229,160,.3);box-shadow:var(--glow-bull);}
+  .pair-card.bearish{border-color:rgba(255,61,107,.3);box-shadow:var(--glow-bear);}
+
+  .card-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);}
+  .pair-name{font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--text-bright);}
+  .pair-price{font-family:'Space Mono',monospace;font-size:10px;color:var(--text-dim);margin-top:2px;}
+
+  .bias-badge{padding:4px 10px;border-radius:6px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
+  .bias-badge.bull{background:rgba(0,229,160,.15);color:var(--bull);border:1px solid rgba(0,229,160,.3);}
+  .bias-badge.bear{background:rgba(255,61,107,.15);color:var(--bear);border:1px solid rgba(255,61,107,.3);}
+  .bias-badge.neutral{background:rgba(74,158,255,.1);color:var(--neutral);border:1px solid rgba(74,158,255,.2);}
+
+  .section-label{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;padding:7px 14px 3px;border-top:1px solid var(--border);}
+  .tf-row{display:flex;gap:4px;padding:5px 14px 9px;flex-wrap:wrap;}
+  .tf-chip{font-size:9px;font-family:'Space Mono',monospace;padding:2px 6px;border-radius:4px;border:1px solid var(--border);color:var(--text-dim);}
+  .tf-chip.bull{border-color:rgba(0,229,160,.3);color:var(--bull);background:rgba(0,229,160,.05);}
+  .tf-chip.bear{border-color:rgba(255,61,107,.3);color:var(--bear);background:rgba(255,61,107,.05);}
+  .tf-chip.neutral{border-color:rgba(74,158,255,.2);color:var(--neutral);background:rgba(74,158,255,.05);}
+
+  .score-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+  .score-label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.07em;}
+  .score-dots{display:flex;gap:5px;align-items:center;}
+  .dot{width:10px;height:10px;border-radius:50%;border:1px solid var(--border);background:var(--surface2);}
+  .dot.filled-bull{background:var(--bull);border-color:var(--bull);}
+  .dot.filled-bear{background:var(--bear);border-color:var(--bear);}
+  .score-num{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;margin-left:8px;}
+  .score-num.high{color:var(--bull);}
+  .score-num.mid{color:var(--warn);}
+  .score-num.low{color:var(--text-dim);}
+
+  .conditions{padding:10px 14px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--border);}
+  .condition-row{display:flex;align-items:center;justify-content:space-between;}
+  .cond-label{font-size:11px;color:var(--text-dim);}
+  .cond-status{font-size:11px;font-weight:600;}
+  .cond-status.yes{color:var(--bull);}
+  .cond-status.no{color:var(--text-dim);}
+  .cond-status.warn{color:var(--warn);}
+
+  .levels{padding:12px 14px;display:flex;flex-direction:column;gap:9px;border-bottom:1px solid var(--border);}
+  .level-row{display:flex;align-items:flex-start;gap:10px;}
+  .level-tag{font-family:'Space Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 5px;border-radius:4px;flex-shrink:0;min-width:48px;text-align:center;}
+  .level-tag.entry{background:rgba(74,158,255,.15);color:var(--accent);border:1px solid rgba(74,158,255,.3);}
+  .level-tag.sl{background:rgba(255,61,107,.12);color:var(--bear);border:1px solid rgba(255,61,107,.25);}
+  .level-tag.tp{background:rgba(0,229,160,.12);color:var(--bull);border:1px solid rgba(0,229,160,.25);}
+  .level-tag.hi{background:rgba(255,184,48,.1);color:var(--warn);border:1px solid rgba(255,184,48,.2);}
+  .level-tag.lo{background:rgba(255,184,48,.1);color:var(--warn);border:1px solid rgba(255,184,48,.2);}
+  .level-tag.poi{background:rgba(74,158,255,.08);color:var(--neutral);border:1px solid rgba(74,158,255,.15);}
+  .level-tag.wick{background:rgba(255,61,107,.08);color:var(--bear);border:1px solid rgba(255,61,107,.15);}
+  .level-tag.fts{background:rgba(255,184,48,.1);color:var(--warn);border:1px solid rgba(255,184,48,.2);}
+
+  .level-info{flex:1;}
+  .level-price{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text-bright);}
+  .level-desc{font-size:10px;color:var(--text-dim);margin-top:1px;line-height:1.4;}
+
+  .rr-badge{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;display:inline-block;margin-top:4px;}
+  .rr-badge.good{background:rgba(0,229,160,.15);color:var(--bull);border:1px solid rgba(0,229,160,.3);}
+  .rr-badge.ok{background:rgba(255,184,48,.1);color:var(--warn);border:1px solid rgba(255,184,48,.2);}
+  .rr-badge.bad{background:rgba(255,61,107,.1);color:var(--bear);border:1px solid rgba(255,61,107,.2);}
+
+  .wait-box{margin:12px 14px;padding:10px 12px;border-radius:8px;font-size:11px;line-height:1.6;}
+  .wait-box.yellow{background:rgba(255,184,48,.06);border:1px solid rgba(255,184,48,.25);color:var(--warn);}
+  .wait-box.red{background:rgba(255,61,107,.06);border:1px solid rgba(255,61,107,.2);color:var(--bear);}
+
+  .analysis{padding:10px 14px;background:var(--surface2);}
+  .analysis-title{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;}
+  .analysis-text{font-size:11px;color:var(--text);line-height:1.7;}
+
+  .no-setup{padding:14px;text-align:center;color:var(--text-dim);font-size:11px;}
+  .skeleton{background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:4px;height:12px;}
+  @keyframes shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+  .disclaimer{margin-top:10px;padding:8px 12px;background:rgba(255,184,48,.05);border:1px solid rgba(255,184,48,.15);border-radius:8px;font-size:10px;color:var(--text-dim);line-height:1.5;text-align:center;}
+
+  /* step tracker */
+  .steps{display:flex;flex-direction:column;gap:0;border-top:1px solid var(--border);}
+  .step{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);}
+  .step-num{font-family:'Space Mono',monospace;font-size:9px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .step-num.done{background:var(--bull);color:#000;}
+  .step-num.active{background:var(--warn);color:#000;}
+  .step-num.wait{background:var(--surface2);color:var(--text-dim);border:1px solid var(--border);}
+  .step-text{font-size:11px;color:var(--text-dim);}
+  .step-text.done{color:var(--text);}
+  .step-text.active{color:var(--warn);}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>⬡ SMC SCANNER</h1>
+    <span>Origin POI · Sweep · CISD · FTS</span>
+  </div>
+</div>
+
+<div class="pair-selector">
+  <div class="selector-label">Select Pair</div>
+  <div class="pair-buttons">
+    <button class="pair-btn selected" onclick="selectPair(this,'GBP/USD')">GBPUSD</button>
+    <button class="pair-btn" onclick="selectPair(this,'GBP/JPY')">GBPJPY</button>
+    <button class="pair-btn" onclick="selectPair(this,'EUR/USD')">EURUSD</button>
+    <button class="pair-btn" onclick="selectPair(this,'GBP/AUD')">GBPAUD</button>
+    <button class="pair-btn" onclick="selectPair(this,'AUD/USD')">AUDUSD</button>
+  </div>
+  <button class="scan-btn" id="scanBtn" onclick="runScan()">▶ SCAN</button>
+</div>
+
+<div class="session-bar" id="sessionBar"></div>
+<div class="status-bar">
+  <div class="pulse" id="pulse"></div>
+  <span id="statusText">Select a pair then press SCAN</span>
+</div>
+
+<div class="pairs-grid" id="pairsGrid"></div>
+<div class="disclaimer">⚠ Scanner flags confluence. Always confirm on chart before placing orders.</div>
+
+<script>
+const API_KEY = '8835de6ad0b94dbd8e94d50c0a552f30';
+const PIP = {'GBP/USD':0.0001,'EUR/USD':0.0001,'AUD/USD':0.0001,'GBP/JPY':0.01,'GBP/AUD':0.0001};
+let selectedPair = 'GBP/USD';
+
+function selectPair(el,pair){
+  document.querySelectorAll('.pair-btn').forEach(b=>b.classList.remove('selected'));
+  el.classList.add('selected'); selectedPair=pair;
+  document.getElementById('pairsGrid').innerHTML='';
+  document.getElementById('statusText').textContent=`${pair} selected. Press SCAN.`;
+  document.getElementById('pulse').className='pulse';
+}
+
+const p  = pair => PIP[pair];
+const ps = (pair,dist) => Math.round(Math.abs(dist)/PIP[pair]);
+const fmt= (pair,price) => {
+  if(!price||isNaN(price)) return '—';
+  return pair.includes('JPY') ? price.toFixed(3) : price.toFixed(5);
+};
+
+function getSession(){
+  const h=new Date().getUTCHours();
+  if(h<8) return 'Asian';
+  if(h<12) return 'London';
+  if(h<13) return 'Overlap';
+  if(h<17) return 'New York';
+  return 'Off-Hours';
+}
+
+function renderSessionBar(){
+  const S=['Asian','London','Overlap','New York','Off-Hours'], cur=getSession();
+  document.getElementById('sessionBar').innerHTML=
+    S.map(s=>`<div class="session-pill ${s===cur?'active':''}">${s}</div>`).join('');
+}
+
+async function fetchCandles(symbol,interval,size=60){
+  const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=${size}&apikey=${API_KEY}&format=JSON`;
+  const res=await fetch(url);
+  const data=await res.json();
+  if(data.status==='error'||!data.values) throw new Error(data.message||'API error');
+  return data.values.map(c=>({
+    t:c.datetime,o:+c.open,h:+c.high,l:+c.low,c:+c.close
+  })).reverse();
+}
+
+// ═══════════════════════════════════════════
+// PHASE 1 — BIAS from 1D and 4H
+// ═══════════════════════════════════════════
+function structureBias(candles){
+  if(candles.length<10) return 'neutral';
+  const r=candles.slice(-12);
+  const H=r.map(c=>c.h), L=r.map(c=>c.l);
+  const hh=H.filter((h,i)=>i>0&&h>H[i-1]).length;
+  const hl=L.filter((l,i)=>i>0&&l>L[i-1]).length;
+  const ll=L.filter((l,i)=>i>0&&l<L[i-1]).length;
+  const lh=H.filter((h,i)=>i>0&&h<H[i-1]).length;
+  if(hh>=4&&hl>=3) return 'bull';
+  if(ll>=4&&lh>=3) return 'bear';
+  return 'neutral';
+}
+
+// ═══════════════════════════════════════════
+// PHASE 2 — DETECT BOS / CHOCH
+// Returns the index of the impulse candle that broke structure
+// ═══════════════════════════════════════════
+function detectBOS(candles, bias){
+  // Find a strong impulse candle that breaks the most recent swing
+  for(let i=5; i<candles.length-1; i++){
+    const c=candles[i];
+    const prior=candles.slice(Math.max(0,i-10),i);
+    if(bias==='bull'){
+      const prevHigh=Math.max(...prior.map(x=>x.h));
+      // Bullish BOS: strong bull candle closes above prior swing high
+      if(c.c>c.o && c.c>prevHigh && (c.c-c.o)>(c.h-c.l)*0.5)
+        return i;
+    }
+    if(bias==='bear'){
+      const prevLow=Math.min(...prior.map(x=>x.l));
+      // Bearish BOS: strong bear candle closes below prior swing low
+      if(c.c<c.o && c.c<prevLow && (c.o-c.c)>(c.h-c.l)*0.5)
+        return i;
+    }
+  }
+  return -1;
+}
+
+// ═══════════════════════════════════════════
+// PHASE 2 — ORIGIN POI
+// Last 2-3 opposing candles before impulse + FVG left by impulse
+// Full high-to-low of those candles = the zone
+// ═══════════════════════════════════════════
+function detectOriginPOI(candles, bias){
+  const bosIdx = detectBOS(candles, bias);
+  if(bosIdx < 3) return null;
+
+  // Get 2-3 candles BEFORE the BOS impulse candle
+  const originCandles = candles.slice(Math.max(0, bosIdx-3), bosIdx);
+
+  if(!originCandles.length) return null;
+
+  // Zone = full high to low of those origin candles (as you instructed)
+  const zoneTop = Math.max(...originCandles.map(c=>c.h));
+  const zoneBot = Math.min(...originCandles.map(c=>c.l));
+  const zoneMid = (zoneTop+zoneBot)/2;
+
+  // FVG left by the impulse candle (3-candle gap)
+  let fvg = null;
+  if(bosIdx>=2 && bosIdx<candles.length-1){
+    const a=candles[bosIdx-1], b=candles[bosIdx], cx=candles[bosIdx+1] || candles[bosIdx];
+    if(bias==='bull' && cx.l>a.h)
+      fvg={top:cx.l, bot:a.h, mid:(cx.l+a.h)/2};
+    if(bias==='bear' && cx.h<a.l)
+      fvg={top:a.l, bot:cx.h, mid:(a.l+cx.h)/2};
+    // Also check the BOS candle itself for a gap
+    if(!fvg && bosIdx>=1){
+      const prev=candles[bosIdx-1];
+      if(bias==='bull' && b.l>prev.h)
+        fvg={top:b.l, bot:prev.h, mid:(b.l+prev.h)/2};
+      if(bias==='bear' && b.h<prev.l)
+        fvg={top:prev.l, bot:b.h, mid:(prev.l+b.h)/2};
+    }
+  }
+
+  return {
+    // OB zone from origin candles
+    ob: {top:zoneTop, bot:zoneBot, mid:zoneMid, label:'Origin OB'},
+    // FVG left by impulse
+    fvg: fvg ? {...fvg, label:'Impulse FVG'} : null,
+    bosIdx,
+    originCandles
+  };
+}
+
+// ═══════════════════════════════════════════
+// SWINGS — for SL and TP
+// ═══════════════════════════════════════════
+function getSwings(candles, lb=4){
+  const SH=[], SL=[];
+  for(let i=lb; i<candles.length-lb; i++){
+    const sl=candles.slice(i-lb,i+lb+1);
+    if(candles[i].h===Math.max(...sl.map(c=>c.h))) SH.push({price:candles[i].h, idx:i});
+    if(candles[i].l===Math.min(...sl.map(c=>c.l))) SL.push({price:candles[i].l, idx:i});
+  }
+  return {
+    latestHigh:SH[SH.length-1], latestLow:SL[SL.length-1],
+    prevHigh:SH[SH.length-2],   prevLow:SL[SL.length-2],
+    allHighs:SH, allLows:SL
+  };
+}
+
+// ═══════════════════════════════════════════
+// PHASE 4 — CONFIRMATION (15m / 5m)
+// ═══════════════════════════════════════════
+
+// Is current price inside or very close to POI zone?
+function isPriceInPOI(currentPrice, poi, pair){
+  if(!poi) return false;
+  const buffer = p(pair) * 10; // 10 pip buffer = "very close"
+  return currentPrice >= (poi.bot - buffer) && currentPrice <= (poi.top + buffer);
+}
+
+// Liquidity sweep: wick through recent swing then close back
+function detectSweep(candles15m, bias){
+  const swings=getSwings(candles15m, 3);
+  if(!swings.latestHigh||!swings.latestLow) return {swept:false,wickLevel:null};
+  const last=candles15m[candles15m.length-1];
+  const prev=candles15m[candles15m.length-2];
+  if(bias==='bull'){
+    const lv=swings.latestLow.price;
+    const swept=(prev.l<lv||last.l<lv)&&last.c>lv;
+    return {swept, wickLevel:swept?Math.min(prev.l,last.l):null, sweepLevel:lv};
+  }
+  if(bias==='bear'){
+    const lv=swings.latestHigh.price;
+    const swept=(prev.h>lv||last.h>lv)&&last.c<lv;
+    return {swept, wickLevel:swept?Math.max(prev.h,last.h):null, sweepLevel:lv};
+  }
+  return {swept:false,wickLevel:null};
+}
+
+// CISD: price fails to continue in sweep direction on 5m
+function detectCISD(candles5m, bias){
+  if(candles5m.length<5) return false;
+  const r=candles5m.slice(-5);
+  const last=r[4], prev=r[3], pprev=r[2];
+  if(bias==='bull'){
+    // After sweep down: 5m fails to make lower low and closes bullish
+    return last.l>prev.l && last.c>last.o && last.c>prev.c;
+  }
+  if(bias==='bear'){
+    // After sweep up: 5m fails to make higher high and closes bearish
+    return last.h<prev.h && last.c<last.o && last.c<prev.c;
+  }
+  return false;
+}
+
+// Failure to Swing: the confirming candle on 5m
+// Returns the FTS candle zone (high to low)
+function detectFTS(candles5m, bias){
+  if(candles5m.length<3) return null;
+  const last=candles5m[candles5m.length-1];
+  const prev=candles5m[candles5m.length-2];
+  if(bias==='bull'){
+    // FTS: price tried to go lower but failed — last candle is bullish
+    if(last.c>last.o && last.l>prev.l)
+      return {high:last.h, low:last.l, open:last.o, close:last.c};
+  }
+  if(bias==='bear'){
+    // FTS: price tried to go higher but failed — last candle is bearish
+    if(last.c<last.o && last.h<prev.h)
+      return {high:last.h, low:last.l, open:last.o, close:last.c};
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════
+// PHASE 5 — ENTRY inside FTS
+// Look for FVG or OB inside the FTS candle
+// ═══════════════════════════════════════════
+function getEntryInsideFTS(candles5m, fts, bias){
+  if(!fts) return {entry:null, type:null};
+
+  // FVG inside FTS zone: look at last 3 candles
+  const recent=candles5m.slice(-4);
+  for(let i=2; i<recent.length; i++){
+    const a=recent[i-2], c=recent[i];
+    if(bias==='bull' && c.l>a.h){
+      const fvgMid=(c.l+a.h)/2;
+      if(fvgMid>=fts.low && fvgMid<=fts.high)
+        return {entry:a.h, entryTop:c.l, entryBot:a.h, type:'FVG inside FTS'};
+    }
+    if(bias==='bear' && c.h<a.l){
+      const fvgMid=(a.l+c.h)/2;
+      if(fvgMid>=fts.low && fvgMid<=fts.high)
+        return {entry:a.l, entryTop:a.l, entryBot:c.h, type:'FVG inside FTS'};
+    }
+  }
+
+  // OB inside FTS: last opposing candle before last move
+  for(let i=1; i<recent.length-1; i++){
+    const c=recent[i], n=recent[i+1];
+    if(bias==='bull' && c.c<c.o && n.c>n.o){
+      const obMid=(c.o+c.l)/2;
+      if(obMid>=fts.low && obMid<=fts.high)
+        return {entry:c.l, entryTop:c.o, entryBot:c.l, type:'OB inside FTS'};
+    }
+    if(bias==='bear' && c.c>c.o && n.c<n.o){
+      const obMid=(c.h+c.c)/2;
+      if(obMid>=fts.low && obMid<=fts.high)
+        return {entry:c.h, entryTop:c.h, entryBot:c.c, type:'OB inside FTS'};
+    }
+  }
+
+  // Fallback: use 50% of FTS candle body
+  const bodyMid=(fts.open+fts.close)/2;
+  if(bias==='bull') return {entry:Math.min(fts.open,fts.close), entryTop:fts.close, entryBot:fts.open, type:'FTS body (50%)'};
+  if(bias==='bear') return {entry:Math.max(fts.open,fts.close), entryTop:fts.open, entryBot:fts.close, type:'FTS body (50%)'};
+  return {entry:null, type:null};
+}
+
+// ═══════════════════════════════════════════
+// SL — below sweep wick (not POI)
+// ═══════════════════════════════════════════
+function calcSL(pair, bias, sweepWick, poi){
+  const buf = p(pair)*5; // 5 pip buffer
+  if(bias==='bull'){
+    const base = sweepWick ?? (poi?.bot ?? null);
+    return base ? base - buf : null;
+  }
+  if(bias==='bear'){
+    const base = sweepWick ?? (poi?.top ?? null);
+    return base ? base + buf : null;
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════
+// TP — depends on score
+// score 5 → major previous high/low (further)
+// score 4 → nearest swing high/low
+// ═══════════════════════════════════════════
+function calcTP(bias, entry, swings1h, swings4h, score){
+  if(bias==='bull'){
+    const allHighs=[
+      ...(swings1h.allHighs||[]),
+      ...(swings4h.allHighs||[])
+    ].filter(s=>s.price>entry).sort((a,b)=>a.price-b.price);
+    if(!allHighs.length) return null;
+    if(score>=5) return allHighs[allHighs.length-1].price; // furthest
+    return allHighs[0].price; // nearest
+  }
+  if(bias==='bear'){
+    const allLows=[
+      ...(swings1h.allLows||[]),
+      ...(swings4h.allLows||[])
+    ].filter(s=>s.price<entry).sort((a,b)=>b.price-a.price);
+    if(!allLows.length) return null;
+    if(score>=5) return allLows[allLows.length-1].price; // furthest
+    return allLows[0].price; // nearest
+  }
+  return null;
+}
+
+function rrClass(rr){ const n=+rr; return n>=2?'good':n>=1.5?'ok':'bad'; }
+
+// ═══════════════════════════════════════════
+// MAIN SCAN
+// ═══════════════════════════════════════════
+async function scanPair(pair){
+  const [c1d,c4h,c1h,c15m,c5m] = await Promise.all([
+    fetchCandles(pair,'1day',30),
+    fetchCandles(pair,'4h',60),
+    fetchCandles(pair,'1h',60),
+    fetchCandles(pair,'15min',60),
+    fetchCandles(pair,'5min',60),
+  ]);
+
+  const currentPrice = c5m[c5m.length-1].c;
+
+  // ── Phase 1: Bias ──
+  const bias1d = structureBias(c1d);
+  const bias4h = structureBias(c4h);
+  const bias1h = structureBias(c1h);
+  let bScore = 0;
+  if(bias1d==='bull') bScore+=2; if(bias1d==='bear') bScore-=2;
+  if(bias4h==='bull') bScore+=2; if(bias4h==='bear') bScore-=2;
+  const bias = bScore>0?'bull':bScore<0?'bear':'neutral';
+  const bias1hAligns = bias!=='neutral' && bias1h===bias;
+
+  // ── Phase 2: Origin POI on 4H first, then 1H ──
+  let originPOI=null, poiTF=null;
+  const poi4h = detectOriginPOI(c4h, bias);
+  const poi1h = detectOriginPOI(c1h, bias);
+
+  if(poi4h){ originPOI=poi4h; poiTF='4H'; }
+  else if(poi1h){ originPOI=poi1h; poiTF='1H'; }
+
+  // Use OB zone as primary, FVG as secondary
+  const poiZone = originPOI?.ob ?? null;
+  const poiFVG  = originPOI?.fvg ?? null;
+
+  // ── Phase 3: Is price at POI? ──
+  const priceAtPOI = poiZone ? isPriceInPOI(currentPrice, poiZone, pair) : false;
+
+  // ── Phase 4: Confirmation (only meaningful if price is at POI) ──
+  const {swept:liqSweep, wickLevel:sweepWick, sweepLevel} = detectSweep(c15m, bias);
+  const cisd = liqSweep ? detectCISD(c5m, bias) : false;
+  const fts  = cisd ? detectFTS(c5m, bias) : null;
+
+  // ── Phase 5: Entry inside FTS ──
+  const {entry:entryPrice, entryTop, entryBot, type:entryType} = fts
+    ? getEntryInsideFTS(c5m, fts, bias)
+    : {entry:null,entryTop:null,entryBot:null,type:null};
+
+  // ── Swings ──
+  const swings4h = getSwings(c4h,5);
+  const swings1h  = getSwings(c1h,4);
+
+  // ── Confluence Score ──
+  // 5 conditions matching your exact strategy flow
+  const conditions = [
+    { label:'HTF Bias (1D + 4H)',          met: bias!=='neutral' },
+    { label:'Origin POI Found (4H/1H)',    met: !!poiZone },
+    { label:'Price Reached POI Zone',      met: priceAtPOI },
+    { label:'Liquidity Sweep (15m)',        met: liqSweep },
+    { label:'CISD + FTS (5m)',             met: cisd && !!fts },
+  ];
+  const score = conditions.filter(c=>c.met).length;
+
+  // ── Levels (only when FTS confirmed and score >= 4) ──
+  let sl=null, tp=null, slPips=null, tpPips=null, rr=null, tradeType=null;
+  const entryReady = score>=4 && !!fts && !!entryPrice;
+
+  if(entryReady){
+    sl = calcSL(pair, bias, sweepWick, poiZone);
+    tp = calcTP(bias, entryPrice, swings1h, swings4h, score);
+    if(sl&&tp){
+      slPips = ps(pair, Math.abs(entryPrice-sl));
+      tpPips = ps(pair, Math.abs(tp-entryPrice));
+      rr = slPips>0 ? (tpPips/slPips).toFixed(1) : '?';
+      tradeType = slPips>40?'Day Trade':'Scalp';
+    }
+  }
+
+  // ── Step tracker for what's pending ──
+  // 0=bias, 1=poi, 2=price@poi, 3=sweep, 4=cisd+fts, 5=complete
+  let currentStep=0;
+  if(bias!=='neutral') currentStep=1;
+  if(poiZone) currentStep=2;
+  if(priceAtPOI) currentStep=3;
+  if(liqSweep) currentStep=4;
+  if(cisd&&fts) currentStep=5;
+
+  // ── Analysis text ──
+  const session=getSession();
+  let analysis='';
+  if(bias==='neutral'){
+    analysis=`1D and 4H structure conflict — market has no clear direction. Wait for a clean Break of Structure before doing anything.`;
+  } else {
+    const dir=bias==='bull'?'bullish':'bearish';
+    const act=bias==='bull'?'BUY LIMIT':'SELL LIMIT';
+    analysis=`Bias is ${dir} (1D: ${bias1d}, 4H: ${bias4h}). `;
+    if(!poiZone) analysis+=`No origin POI detected yet on 4H or 1H — wait for a BOS/CHOCH to form with a clear origin candle. `;
+    else{
+      analysis+=`Origin POI identified on ${poiTF} (${fmt(pair,poiZone.bot)}–${fmt(pair,poiZone.top)}). `;
+      if(poiFVG) analysis+=`Impulse FVG also present at ${fmt(pair,poiFVG.bot)}–${fmt(pair,poiFVG.top)}. `;
+      if(!priceAtPOI) analysis+=`Price not yet at POI — wait for it to reach the zone. `;
+      else analysis+=`Price is inside the POI zone ✓. `;
+      if(!liqSweep) analysis+=`Watching for 15m liquidity sweep inside the POI. Do NOT enter yet. `;
+      else analysis+=`15m liquidity sweep confirmed at ${fmt(pair,sweepWick)} ✓. `;
+      if(liqSweep&&!cisd) analysis+=`Watching 5m for CISD. `;
+      if(cisd&&!fts) analysis+=`CISD confirmed ✓. Waiting for FTS candle to close. `;
+      if(fts&&!entryPrice) analysis+=`FTS detected. No clear FVG/OB inside FTS yet. `;
+      if(entryReady&&sl&&tp){
+        analysis+=`FTS closed ✓. Place ${act} at ${fmt(pair,entryPrice)} (${entryType}). SL at ${fmt(pair,sl)} (${slPips} pips — below sweep wick). TP at ${fmt(pair,tp)} (${tpPips} pips — ${score>=5?'major':'nearest'} liquidity). RR 1:${rr}. ${tradeType} — ${session} session.`;
+      }
+    }
+  }
+
+  return {
+    pair,currentPrice,bias,bias1d,bias4h,bias1h,bias1hAligns,
+    originPOI,poiZone,poiFVG,poiTF,priceAtPOI,
+    liqSweep,sweepWick,sweepLevel,cisd,fts,
+    entryPrice,entryTop,entryBot,entryType,entryReady,
+    sl,tp,slPips,tpPips,rr,tradeType,
+    score,conditions,swings1h,swings4h,currentStep,analysis,session
+  };
+}
+
+// ═══════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════
+function renderCard(r){
+  const {pair,currentPrice,bias,bias1d,bias4h,bias1h,
+         poiZone,poiFVG,poiTF,priceAtPOI,
+         liqSweep,sweepWick,cisd,fts,
+         entryPrice,entryTop,entryBot,entryType,entryReady,
+         sl,tp,slPips,tpPips,rr,tradeType,
+         score,conditions,swings1h,currentStep,analysis} = r;
+
+  const bc=bias==='bull'?'bull':bias==='bear'?'bear':'neutral';
+  const bl=bias==='bull'?'BULLISH':bias==='bear'?'BEARISH':'RANGING';
+  const sc=score>=4?'high':score>=3?'mid':'low';
+  const dc=bias==='bull'?'filled-bull':'filled-bear';
+  const dots=Array.from({length:5},(_,i)=>`<div class="dot ${i<score?dc:''}"></div>`).join('');
+
+  const crows=conditions.map(c=>`
+    <div class="condition-row">
+      <span class="cond-label">${c.label}</span>
+      <span class="cond-status ${c.met?'yes':'no'}">${c.met?'✓ YES':'— NO'}</span>
+    </div>`).join('');
+
+  // Step tracker
+  const stepDefs=[
+    'HTF Bias confirmed',
+    'Origin POI on 4H/1H found',
+    'Price reached POI zone',
+    'Liquidity sweep on 15m',
+    'CISD + FTS on 5m → place order'
+  ];
+  const stepsHTML=`<div class="steps">`+stepDefs.map((s,i)=>{
+    const done=currentStep>i+1;
+    const active=currentStep===i+1;
+    const cls=done?'done':active?'active':'wait';
+    return `<div class="step">
+      <div class="step-num ${cls}">${done?'✓':i+1}</div>
+      <div class="step-text ${cls}">${s}</div>
+    </div>`;
+  }).join('')+`</div>`;
+
+  // Levels
+  let levelsHTML='';
+  if(entryReady && sl && tp){
+    const rrc=rrClass(rr);
+    levelsHTML=`<div class="levels">
+      ${swings1h.latestHigh?`<div class="level-row">
+        <span class="level-tag hi">HIGH</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,swings1h.latestHigh.price)}</div>
+          <div class="level-desc">1H Swing High — Buy-side liquidity</div>
+        </div></div>`:''}
+      ${swings1h.latestLow?`<div class="level-row">
+        <span class="level-tag lo">LOW</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,swings1h.latestLow.price)}</div>
+          <div class="level-desc">1H Swing Low — Sell-side liquidity</div>
+        </div></div>`:''}
+      ${poiZone?`<div class="level-row">
+        <span class="level-tag poi">POI</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,poiZone.mid)}</div>
+          <div class="level-desc">${poiTF} Origin OB · ${fmt(pair,poiZone.bot)} – ${fmt(pair,poiZone.top)}</div>
+        </div></div>`:''}
+      ${poiFVG?`<div class="level-row">
+        <span class="level-tag poi">FVG</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,poiFVG.mid)}</div>
+          <div class="level-desc">${poiTF} Impulse FVG · ${fmt(pair,poiFVG.bot)} – ${fmt(pair,poiFVG.top)}</div>
+        </div></div>`:''}
+      ${sweepWick?`<div class="level-row">
+        <span class="level-tag wick">WICK</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,sweepWick)}</div>
+          <div class="level-desc">15m sweep wick extreme — SL reference</div>
+        </div></div>`:''}
+      ${r.fts?`<div class="level-row">
+        <span class="level-tag fts">FTS</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,r.fts.low)} – ${fmt(pair,r.fts.high)}</div>
+          <div class="level-desc">Failure to Swing zone (5m) — entry searched inside</div>
+        </div></div>`:''}
+      <div class="level-row">
+        <span class="level-tag entry">ENTRY</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,entryPrice)}</div>
+          <div class="level-desc">Pending ${bias==='bull'?'BUY':'SELL'} LIMIT · ${entryType}</div>
+        </div>
+      </div>
+      <div class="level-row">
+        <span class="level-tag sl">SL</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,sl)}</div>
+          <div class="level-desc">${slPips} pips · ${bias==='bull'?'Below':'Above'} sweep wick + 5 pip buffer</div>
+        </div>
+      </div>
+      <div class="level-row">
+        <span class="level-tag tp">TP</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,tp)}</div>
+          <div class="level-desc">${tpPips} pips · ${score>=5?'Major':'Nearest'} liquidity — ${tradeType}
+            <span class="rr-badge ${rrc}">RR 1:${rr}</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  } else if(poiZone && score>=2){
+    // Show POI only — no entry yet
+    levelsHTML=`<div class="levels">
+      ${swings1h.latestHigh?`<div class="level-row">
+        <span class="level-tag hi">HIGH</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,swings1h.latestHigh.price)}</div>
+          <div class="level-desc">1H Swing High — Buy-side liquidity</div>
+        </div></div>`:''}
+      ${swings1h.latestLow?`<div class="level-row">
+        <span class="level-tag lo">LOW</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,swings1h.latestLow.price)}</div>
+          <div class="level-desc">1H Swing Low — Sell-side liquidity</div>
+        </div></div>`:''}
+      <div class="level-row">
+        <span class="level-tag poi">POI</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,poiZone.mid)}</div>
+          <div class="level-desc">${poiTF} Origin OB · ${fmt(pair,poiZone.bot)} – ${fmt(pair,poiZone.top)}</div>
+        </div>
+      </div>
+      ${poiFVG?`<div class="level-row">
+        <span class="level-tag poi">FVG</span>
+        <div class="level-info">
+          <div class="level-price">${fmt(pair,poiFVG.mid)}</div>
+          <div class="level-desc">${poiTF} Impulse FVG · ${fmt(pair,poiFVG.bot)} – ${fmt(pair,poiFVG.top)}</div>
+        </div></div>`:''}
+    </div>
+    <div class="wait-box yellow">
+      ⏳ ${!priceAtPOI?'Waiting for price to reach the POI zone.':
+           !liqSweep?'Price at POI ✓ — watching for 15m liquidity sweep.':
+           !cisd?'Sweep confirmed ✓ — watching 5m for CISD.':
+           !fts?'CISD confirmed ✓ — waiting for FTS candle to close.':
+           'FTS closed — entry, SL, TP calculating…'}
+      <br>Entry, SL and TP appear after FTS closes.
+    </div>`;
+  }
+
+  return `
+  <div class="pair-card ${bias==='bull'?'bullish':bias==='bear'?'bearish':''}">
+    <div class="card-header">
+      <div>
+        <div class="pair-name">${pair.replace('/','')}</div>
+        <div class="pair-price">${fmt(pair,currentPrice)}</div>
+      </div>
+      <span class="bias-badge ${bc}">${bl}</span>
+    </div>
+
+    <div class="section-label">Structure</div>
+    <div class="tf-row">
+      <span class="tf-chip ${bias1d}">1D: ${bias1d.toUpperCase()}</span>
+      <span class="tf-chip ${bias4h}">4H: ${bias4h.toUpperCase()}</span>
+      <span class="tf-chip ${bias1h}">1H: ${bias1h.toUpperCase()}</span>
+    </div>
+
+    <div class="score-row">
+      <span class="score-label">Confluence</span>
+      <div style="display:flex;align-items:center">
+        <div class="score-dots">${dots}</div>
+        <span class="score-num ${sc}">&nbsp;${score}/5</span>
+      </div>
+    </div>
+
+    <div class="conditions">${crows}</div>
+
+    ${stepsHTML}
+
+    ${levelsHTML}
+
+    <div class="analysis">
+      <div class="analysis-title">Analysis</div>
+      <div class="analysis-text">${analysis}</div>
+    </div>
+  </div>`;
+}
+
+async function runScan(){
+  const btn=document.getElementById('scanBtn');
+  const pulse=document.getElementById('pulse');
+  const st=document.getElementById('statusText');
+  const grid=document.getElementById('pairsGrid');
+
+  btn.disabled=true; btn.textContent='⏳ SCANNING…';
+  pulse.className='pulse scanning';
+  st.textContent=`Fetching ${selectedPair} — 5 timeframes…`;
+
+  grid.innerHTML=`<div class="pair-card">
+    <div class="card-header">
+      <div class="pair-name">${selectedPair.replace('/','')}</div>
+      <span class="bias-badge neutral">SCANNING…</span>
+    </div>
+    <div style="padding:14px;display:flex;flex-direction:column;gap:8px">
+      <div class="skeleton" style="width:80%"></div>
+      <div class="skeleton" style="width:60%"></div>
+      <div class="skeleton" style="width:70%"></div>
+      <div class="skeleton" style="width:50%"></div>
+    </div>
+  </div>`;
+
+  try{
+    const result=await scanPair(selectedPair);
+    grid.innerHTML=renderCard(result);
+    const now=new Date().toUTCString().slice(0,25);
+    pulse.className='pulse done';
+    st.textContent=`${selectedPair} · ${now} UTC · Score: ${result.score}/5 · Step ${result.currentStep}/5`;
+  } catch(err){
+    grid.innerHTML=`<div class="pair-card">
+      <div class="card-header">
+        <div class="pair-name">${selectedPair.replace('/','')}</div>
+        <span class="bias-badge neutral">ERROR</span>
+      </div>
+      <div class="no-setup" style="color:var(--bear)">⚠ ${err.message}<br><br>Rate limit — wait 60s then rescan.</div>
+    </div>`;
+    pulse.className='pulse error';
+    st.textContent=`Error — ${err.message}`;
+  }
+  btn.disabled=false; btn.textContent='↺ RESCAN';
+  renderSessionBar();
+}
+
+renderSessionBar();
+</script>
+</body>
+</html>
